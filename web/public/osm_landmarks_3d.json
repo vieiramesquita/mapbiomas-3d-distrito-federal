@@ -1,0 +1,252 @@
+{
+  "landmarks": [
+    {
+      "id": "congresso",
+      "name": "Congresso Nacional",
+      "author": "Oscar Niemeyer (1960)",
+      "desc": "Sede do Poder Legislativo: Torres Gêmeas de 28 andares, Cúpula da Câmara (convexa) e Cúpula do Senado (côncava).",
+      "lat": -15.7997,
+      "lon": -47.8641,
+      "type": "legislative",
+      "height_m": 100.0,
+      "utm_x": 193152.43220970302,
+      "utm_y": 8251131.057027791,
+      "u": 0.4372436920742859,
+      "v": 0.5387139220324834,
+      "px": 1634,
+      "py": 1235,
+      "elev": 1057.615966796875,
+      "scene_x": -12.551261585142825,
+      "scene_z": 4.751724833735518
+    },
+    {
+      "id": "catedral",
+      "name": "Catedral Metropolitana de Brasília",
+      "author": "Oscar Niemeyer (1970) - Prêmio Pritzker",
+      "desc": "Catedral em hiperboloide de 16 colunas de concreto de 90 toneladas unidas no topo, espelho d'água e nave envidraçada.",
+      "lat": -15.7983,
+      "lon": -47.8756,
+      "type": "religious",
+      "height_m": 40.0,
+      "utm_x": 191917.3648725605,
+      "utm_y": 8251269.252699498,
+      "u": 0.4262300721604056,
+      "v": 0.5367058477560028,
+      "px": 1593,
+      "py": 1231,
+      "elev": 1079.4609375,
+      "scene_x": -14.753985567918882,
+      "scene_z": 4.505254935916024
+    },
+    {
+      "id": "ponte_jk",
+      "name": "Ponte Juscelino Kubitschek (Ponte JK)",
+      "author": "Alexandre Chan (2002)",
+      "desc": "Ponte monumental de 1.200m com 3 arcos estruturais assimétricos de aço cruzando diagonalmente o Lago Paranoá.",
+      "lat": -15.8239,
+      "lon": -47.83,
+      "type": "bridge",
+      "height_m": 60.0,
+      "utm_x": 196844.41993904387,
+      "utm_y": 8248500.936931191,
+      "u": 0.47016671445114383,
+      "v": 0.5769313021051321,
+      "px": 1757,
+      "py": 1323,
+      "elev": 1000.0,
+      "scene_x": -5.9666571097712335,
+      "scene_z": 9.442504388933818
+    },
+    {
+      "id": "palacio_planalto",
+      "name": "Palácio do Planalto",
+      "author": "Oscar Niemeyer (1960)",
+      "desc": "Sede do Poder Executivo Federal na Praça dos Três Poderes, com colunas sinuosas características e rampa cerimonial.",
+      "lat": -15.799,
+      "lon": -47.8608,
+      "type": "executive",
+      "height_m": 25.0,
+      "utm_x": 193505.1778609777,
+      "utm_y": 8251213.3852141,
+      "u": 0.44038927483935353,
+      "v": 0.5375176391741724,
+      "px": 1646,
+      "py": 1233,
+      "elev": 1064.5697021484375,
+      "scene_x": -11.922145032129293,
+      "scene_z": 4.604893754176108
+    },
+    {
+      "id": "stf",
+      "name": "Supremo Tribunal Federal (STF)",
+      "author": "Oscar Niemeyer (1960)",
+      "desc": "Sede da Corte Constitucional brasileira na Praça dos Três Poderes com colunas esbeltas e estátua da Justiça de Ceschiatti.",
+      "lat": -15.8016,
+      "lon": -47.8618,
+      "type": "judiciary",
+      "height_m": 22.0,
+      "utm_x": 193401.88415296376,
+      "utm_y": 8250924.026205682,
+      "u": 0.4394681609815512,
+      "v": 0.5417222164542866,
+      "px": 1642,
+      "py": 1242,
+      "elev": 1056.7197265625,
+      "scene_x": -12.106367803689755,
+      "scene_z": 5.120961184918864
+    },
+    {
+      "id": "torre_tv",
+      "name": "Torre de TV de Brasília",
+      "author": "Lúcio Costa (1967)",
+      "desc": "Torre metálica de radiodifusão de 224m de altura no centro do Eixo Monumental, com mirante panorâmico e feira típica.",
+      "lat": -15.7907,
+      "lon": -47.8929,
+      "type": "tower",
+      "height_m": 224.0,
+      "utm_x": 190050.97486806847,
+      "utm_y": 8252085.383831015,
+      "u": 0.40958667993201237,
+      "v": 0.5248469240199266,
+      "px": 1531,
+      "py": 1203,
+      "elev": 1124.07080078125,
+      "scene_x": -18.082664013597526,
+      "scene_z": 3.0496973623173695
+    },
+    {
+      "id": "memorial_jk",
+      "name": "Memorial JK",
+      "author": "Oscar Niemeyer (1981)",
+      "desc": "Monumento e mausoléu de Juscelino Kubitschek no topo do Eixo Monumental, encimado pela estátua de JK dentro de um pedestal curvo.",
+      "lat": -15.7842,
+      "lon": -47.9134,
+      "type": "monument",
+      "height_m": 28.0,
+      "utm_x": 187842.99339131796,
+      "utm_y": 8252774.827829829,
+      "u": 0.389897171489436,
+      "v": 0.514828847896495,
+      "px": 1457,
+      "py": 1181,
+      "elev": 1170.8194580078125,
+      "scene_x": -22.020565702112805,
+      "scene_z": 1.820084380661287
+    },
+    {
+      "id": "estadio_garrincha",
+      "name": "Arena BRB Mané Garrincha",
+      "author": "Ícaro de Castro Mello (1974 / 2013)",
+      "desc": "Estádio monumental com colunata externa circular de 288 pilares de concreto sustentando a cobertura de 72.000 lugares.",
+      "lat": -15.7835,
+      "lon": -47.8994,
+      "type": "stadium",
+      "height_m": 45.0,
+      "utm_x": 189343.06078130793,
+      "utm_y": 8252873.072690967,
+      "u": 0.40327390940623614,
+      "v": 0.5134012852528286,
+      "px": 1507,
+      "py": 1177,
+      "elev": 1114.8382568359375,
+      "scene_x": -19.345218118752772,
+      "scene_z": 1.6448661514172689
+    },
+    {
+      "id": "palacio_alvorada",
+      "name": "Palácio da Alvorada",
+      "author": "Oscar Niemeyer (1958)",
+      "desc": "Residência oficial da Presidência da República na península da Alvorada às margens do Lago Paranoá.",
+      "lat": -15.7925,
+      "lon": -47.8221,
+      "type": "presidential",
+      "height_m": 20.0,
+      "utm_x": 197644.58181002253,
+      "utm_y": 8251989.182412895,
+      "u": 0.477302097641608,
+      "v": 0.5262447940885038,
+      "px": 1784,
+      "py": 1207,
+      "elev": 1012.7565307617188,
+      "scene_x": -4.539580471678395,
+      "scene_z": 3.2212711417350275
+    }
+  ],
+  "ponte_jk_path": [
+    [
+      -5.412,
+      10.391,
+      1005.5
+    ],
+    [
+      -5.484,
+      10.184,
+      1000.6
+    ],
+    [
+      -5.543,
+      10.03,
+      1000.5
+    ],
+    [
+      -5.584,
+      9.926,
+      1000.0
+    ],
+    [
+      -5.627,
+      9.83,
+      1000.0
+    ],
+    [
+      -5.691,
+      9.697,
+      1000.0
+    ],
+    [
+      -5.791,
+      9.501,
+      1000.0
+    ],
+    [
+      -5.861,
+      9.376,
+      1000.0
+    ],
+    [
+      -5.907,
+      9.296,
+      1000.0
+    ],
+    [
+      -5.97,
+      9.198,
+      1000.0
+    ],
+    [
+      -6.056,
+      9.067,
+      1000.0
+    ],
+    [
+      -6.169,
+      8.908,
+      1000.0
+    ],
+    [
+      -6.292,
+      8.747,
+      1000.0
+    ],
+    [
+      -6.374,
+      8.645,
+      1000.3
+    ],
+    [
+      -6.47,
+      8.541,
+      1004.5
+    ]
+  ]
+}

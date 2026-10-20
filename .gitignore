@@ -1,0 +1,18 @@
+# Arquivos GeoTIFF brutos (>100MB e rasters pesados)
+*.tif
+*.tiff
+
+# GeoJSON bruto do OSM (>5MB, compilado em web/public/roads.json)
+df_osm_highways.geojson
+
+# Arquivos de sistema, logs e temporários
+*.log
+.DS_Store
+Thumbs.db
+__pycache__/
+
+# Diretórios de artefatos de teste, screenshots e logs
+artifacts/
+scratch/
+.tempmediaStorage/
+node_modules/
