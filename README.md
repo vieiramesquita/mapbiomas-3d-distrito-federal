@@ -1,9 +1,13 @@
 # 🛰️ MapBiomas 3D - Distrito Federal (Brasília, Brasil)
 
+[![Acessar Demonstração Online](https://img.shields.io/badge/🌐_Acesse_Online-GitHub_Pages-2ea44f?style=for-the-badge&logo=github)](https://vieiramesquita.github.io/mapbiomas-3d-distrito-federal/)
 [![MapBiomas Col. 11](https://img.shields.io/badge/MapBiomas-Coleção%2011%20(2025)-1f8d49?style=for-the-badge)](https://mapbiomas.org/)
 [![DEM Copernicus](https://img.shields.io/badge/DEM-Copernicus%20GLO--30-3b82f6?style=for-the-badge)](https://spacedata.copernicus.eu/)
 [![Three.js](https://img.shields.io/badge/Three.js-r128%20WebGL-black?style=for-the-badge&logo=three.js)](https://threejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+> 🚀 **Aplicação Web Interativa Disponível em:**  
+> 👉 **[https://vieiramesquita.github.io/mapbiomas-3d-distrito-federal/](https://vieiramesquita.github.io/mapbiomas-3d-distrito-federal/)**
 
 Aplicação web geoespacial interativa em **3D / WebGL** que transforma os dados de cobertura e uso da terra do **MapBiomas Coleção 11 (2025)** e o relevo digital do **DEM Copernicus (30m)** em um gêmeo digital volumétrico e fotorrealista de todo o território do **Distrito Federal (Brasília, DF, Brasil)**.
 
