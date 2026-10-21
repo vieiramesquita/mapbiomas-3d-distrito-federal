@@ -3892,7 +3892,7 @@ function enterNadirMode() {
 
   // Atualiza botões e badges
   if (btnToggleNadir) btnToggleNadir.classList.add('active');
-  if (labelToggleNadir) labelToggleNadir.textContent = '🌐 Vista 3D';
+  if (labelToggleNadir) labelToggleNadir.textContent = 'Vista 3D';
   if (presetNadir) presetNadir.classList.add('active');
   if (nadirFloatingBadge) nadirFloatingBadge.style.display = 'flex';
 
@@ -3922,7 +3922,7 @@ function exitNadirMode(animateBack = true) {
 
   // Atualiza UI
   if (btnToggleNadir) btnToggleNadir.classList.remove('active');
-  if (labelToggleNadir) labelToggleNadir.textContent = '🛰️ Visão Nadir';
+  if (labelToggleNadir) labelToggleNadir.textContent = 'Visão Nadir';
   if (presetNadir) presetNadir.classList.remove('active');
   if (nadirFloatingBadge) nadirFloatingBadge.style.display = 'none';
 
