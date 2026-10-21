@@ -969,6 +969,23 @@ function createColoredGeometry(parts) {
   return nonIndexedParts[0];
 }
 
+// Gerador de Geometria Impostor Cross-Quad (LOD 1 & 2): 2 planos verticais ortogonais em "X"
+function createCrossQuadGeometry(w, h) {
+  const g1 = new THREE.PlaneGeometry(w, h);
+  g1.translate(0, h / 2, 0);
+  const g2 = new THREE.PlaneGeometry(w, h);
+  g2.rotateY(Math.PI / 2);
+  g2.translate(0, h / 2, 0);
+  if (window.THREE && THREE.BufferGeometryUtils && THREE.BufferGeometryUtils.mergeBufferGeometries) {
+    const merged = THREE.BufferGeometryUtils.mergeBufferGeometries([g1, g2], false);
+    if (merged) {
+      merged.computeVertexNormals();
+      return merged;
+    }
+  }
+  return g1;
+}
+
 // 1. Árvore da Mata Tropical / Floresta Estacional & Galeria (ID 3)
 function createTropicalTree3DGeo() {
   const trunk = new THREE.CylinderGeometry(0.0035, 0.0055, 0.038, 5);
@@ -2711,6 +2728,35 @@ function buildPropsMeshes() {
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   }
+
+  // Materiais PBR Sólidos com Vertex Colors para Vegetação e Elementos 3D
+  const botanicalMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.78,
+    metalness: 0.04,
+    flatShading: true
+  });
+
+  const rockMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.88,
+    metalness: 0.08,
+    flatShading: true
+  });
+
+  const pastureMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.82,
+    metalness: 0.03,
+    flatShading: true
+  });
+
+  const urbanMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.80,
+    metalness: 0.08,
+    flatShading: true
+  });
 
   // Materiais Impostores 2.5D (LOD 1 & 2) com AlphaTest
   const impostorMats = {
