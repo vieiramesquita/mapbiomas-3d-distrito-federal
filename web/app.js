@@ -2729,6 +2729,587 @@ function buildPropsMeshes() {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   }
 
+  // 1. Mata Tropical / Floresta Estacional & Galeria (ID 3) - ADENSADA EM CORREDORES DENSOS RIPÁRIOS
+  const fStep = 2.4 / dSqrt; // Grid densificado para formar dossel fechado ao longo de cursos d'água
+  for (let r = 0; r < demH; r += fStep) {
+    for (let c = 0; c < demW; c += fStep) {
+      const cA = c + pHash(c, r, 11) * fStep;
+      const rA = r + pHash(c, r, 12) * fStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 3) {
+        const rndA = pHash(cA, rA, 13);
+        const tiltX = (pHash(cA, rA, 14) - 0.5) * 0.08;
+        const tiltZ = (pHash(cA, rA, 15) - 0.5) * 0.08;
+        const scaleBase = 1.30 + (rndA > 0.65 ? 0.35 : rndA * 0.20);
+        forestItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, scaleBase, rndA, undefined, tiltX, tiltZ));
+      }
+
+      // Segundo exemplar em sub-amostragem para formar dossel contínuo fechado
+      const cB = c + pHash(c, r, 21) * fStep;
+      const rB = r + pHash(c, r, 22) * fStep;
+      const pixCB = Math.max(0, Math.min(demW - 1, Math.round(cB)));
+      const pixRB = Math.max(0, Math.min(demH - 1, Math.round(rB)));
+      if (rawClasses[pixRB * demW + pixCB] === 3 && pHash(cB, rB, 23) > 0.35) {
+        const rndB = pHash(cB, rB, 24);
+        const scaleB = 1.15 + rndB * 0.30;
+        forestItems.push(createContinuousItem(cB, rB, demW, demH, geoW, geoH, scaleB, rndB));
+      }
+    }
+  }
+
+  // 2. Cerrado & Arbustos (ID 4 - Formação Savânica)
+  const cStep = 6.8 / dSqrt;
+  for (let r = 0; r < demH; r += cStep) {
+    for (let c = 0; c < demW; c += cStep) {
+      const cA = c + pHash(c, r, 31) * cStep;
+      const rA = r + pHash(c, r, 32) * cStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 4) {
+        const rndA = pHash(cA, rA, 33);
+        const tiltX = (pHash(cA, rA, 34) - 0.5) * 0.24;
+        const tiltZ = (pHash(cA, rA, 35) - 0.5) * 0.24;
+        cerradoTreeItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.35, rndA, undefined, tiltX, tiltZ));
+      }
+
+      const cB = c + pHash(c, r, 41) * cStep;
+      const rB = r + pHash(c, r, 42) * cStep;
+      const pixCB = Math.max(0, Math.min(demW - 1, Math.round(cB)));
+      const pixRB = Math.max(0, Math.min(demH - 1, Math.round(rB)));
+      if (rawClasses[pixRB * demW + pixCB] === 4) {
+        const rndB = pHash(cB, rB, 43);
+        cerradoShrubItems.push(createContinuousItem(cB, rB, demW, demH, geoW, geoH, 1.15, rndB));
+      }
+    }
+  }
+
+  // 3. Afloramento Rochoso e Campo Rupestre (ID 29)
+  const rkStep = 4.5 / dSqrt;
+  for (let r = 0; r < demH; r += rkStep) {
+    for (let c = 0; c < demW; c += rkStep) {
+      const cA = c + pHash(c, r, 81) * rkStep;
+      const rA = r + pHash(c, r, 82) * rkStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 29) {
+        const rndA = pHash(cA, rA, 83);
+        const tiltX = (pHash(cA, rA, 84) - 0.5) * 0.35;
+        const tiltZ = (pHash(cA, rA, 85) - 0.5) * 0.35;
+        rocksItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.30, rndA, undefined, tiltX, tiltZ));
+      }
+    }
+  }
+
+  // 4. Pastagem / Capim Braquiária 3D Sólido (ID 15 & Mosaico 21)
+  const pStep = 6.0 / dSqrt;
+  for (let r = 0; r < demH; r += pStep) {
+    for (let c = 0; c < demW; c += pStep) {
+      const cA = c + pHash(c, r, 101) * pStep;
+      const rA = r + pHash(c, r, 102) * pStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      const clsA = rawClasses[pixRA * demW + pixCA];
+      if (clsA === 15 || clsA === 21) {
+        pastureItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.45, pHash(cA, rA, 103)));
+      }
+    }
+  }
+
+  // 5. Silvicultura / Floresta Plantada de Eucalipto (ID 9) - ADENSADA EM FILEIRAS GEOMÉTRICAS REAIS
+  const silvBlockSize = 16;
+  const silvBCols = Math.ceil(demW / silvBlockSize);
+  const silvBRows = Math.ceil(demH / silvBlockSize);
+  const silvMaxR = silvBlockSize * 0.85;
+  const silvRowSpacing = 1.30 / dSqrt;    // Fileiras espaçadas com clareza geométrica
+  const silvAlongSpacing = 1.00 / dSqrt; // Espaçamento na linha ampliado (densidade reduzida pela metade)
+  const silvNRows = Math.ceil(silvMaxR / silvRowSpacing);
+  const silvNPts = Math.ceil(silvMaxR / silvAlongSpacing);
+
+  for (let by = 0; by < silvBRows; by++) {
+    for (let bx = 0; bx < silvBCols; bx++) {
+      const c0 = bx * silvBlockSize;
+      const r0 = by * silvBlockSize;
+      let hasSilv = false;
+      for (let dr = 0; dr < silvBlockSize; dr += 2) {
+        for (let dc = 0; dc < silvBlockSize; dc += 2) {
+          const pr = Math.min(demH - 1, r0 + dr);
+          const pc = Math.min(demW - 1, c0 + dc);
+          if (rawClasses[pr * demW + pc] === 9) { hasSilv = true; break; }
+        }
+        if (hasSilv) break;
+      }
+      if (!hasSilv) continue;
+
+      // Orientação do talhão florestal de eucalipto
+      const parcelAngle = ((pHash(bx, by, 120) * 8) | 0) * (Math.PI / 8) + 0.12;
+      const dirX = Math.cos(parcelAngle);
+      const dirY = Math.sin(parcelAngle);
+      const perpX = -Math.sin(parcelAngle);
+      const perpY = Math.cos(parcelAngle);
+      const cx = (bx + 0.5) * silvBlockSize;
+      const cy = (by + 0.5) * silvBlockSize;
+
+      for (let i = -silvNRows; i <= silvNRows; i++) {
+        for (let j = -silvNPts; j <= silvNPts; j++) {
+          const c = cx + i * silvRowSpacing * perpX + j * silvAlongSpacing * dirX;
+          const r = cy + i * silvRowSpacing * perpY + j * silvAlongSpacing * dirY;
+          if (c >= c0 && c < c0 + silvBlockSize && r >= r0 && r < r0 + silvBlockSize) {
+            const pc = Math.round(c);
+            const pr = Math.round(r);
+            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 9) {
+              const rnd = pHash(c, r, 125);
+              const treeRot = -parcelAngle + (rnd - 0.5) * 0.15;
+              silvicultureItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.15 + (rnd - 0.5) * 0.20, rnd, treeRot));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 6. Campo Nativo / Formação Campestre (ID 12)
+  const gStep = 5.5 / dSqrt;
+  for (let r = 0; r < demH; r += gStep) {
+    for (let c = 0; c < demW; c += gStep) {
+      const cA = c + pHash(c, r, 141) * gStep;
+      const rA = r + pHash(c, r, 142) * gStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 12) {
+        grasslandItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.30, pHash(cA, rA, 143)));
+      }
+    }
+  }
+
+  // Função auxiliar para analisar densidade local da malha urbana (1 a 9 pixels vizinhos)
+  function getUrbanDensity(c, r) {
+    let count = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = r + dy;
+      if (ny < 0 || ny >= demH) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = c + dx;
+        if (nx < 0 || nx >= demW) continue;
+        if (rawClasses[ny * demW + nx] === 24) count++;
+      }
+    }
+    return count;
+  }
+
+  // 7. Área Urbana (ID 24) - Taguatinga, Ceilândia, Samambaia, Águas Claras, Gama, Guará, Planaltina, etc.
+  const uStep = 5.2 / dSqrt;
+  for (let r = 0; r < demH; r += uStep) {
+    for (let c = 0; c < demW; c += uStep) {
+      const pixC = Math.max(0, Math.min(demW - 1, Math.round(c)));
+      const pixR = Math.max(0, Math.min(demH - 1, Math.round(r)));
+      if (rawClasses[pixR * demW + pixC] === 24) {
+        // Ignora a área central do Plano Piloto (que terá layout procedural exclusivo)
+        if (pixC >= 1610 && pixC <= 1655 && pixR >= 1200 && pixR <= 1272) continue;
+
+        const density = getUrbanDensity(pixC, pixR);
+        const rnd1 = pHash(c, r, 701);
+        const streetAngles = [0, Math.PI / 2, Math.PI / 4, 3 * Math.PI / 4];
+        const baseAng = streetAngles[Math.floor(rnd1 * 4)] + (pHash(c, r, 702) - 0.5) * 0.12;
+
+        const cA = c + (pHash(c, r, 703) - 0.5) * 0.6;
+        const rA = r + (pHash(c, r, 704) - 0.5) * 0.6;
+
+        if (density >= 6 && rnd1 > 0.97) {
+          urbanChurches.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.25, rnd1, baseAng, 0, 0, 0.001));
+        } else if (density >= 5 && rnd1 > 0.55) {
+          if (rnd1 > 0.80) {
+            urbanSobradosOchre.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.15, rnd1, baseAng, 0, 0, 0.001));
+          } else {
+            urbanSobrados.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.15, rnd1, baseAng, 0, 0, 0.001));
+          }
+        } else {
+          const palRnd = pHash(cA, rA, 705);
+          if (palRnd < 0.42) {
+            urbanHousesWhite.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
+          } else if (palRnd < 0.68) {
+            urbanHousesOchre.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
+          } else if (palRnd < 0.86) {
+            urbanHousesGreen.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
+          } else {
+            urbanHousesRose.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
+          }
+        }
+
+        // Lampião e iluminação pública
+        if (pHash(c, r, 706) > 0.70) {
+          const lC = cA + 0.45 * Math.cos(baseAng + Math.PI / 2);
+          const lR = rA + 0.45 * Math.sin(baseAng + Math.PI / 2);
+          urbanLanterns.push(createContinuousItem(lC, lR, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
+        }
+
+        // Arborização Urbana (Ipês do DF e árvores de sombra)
+        if (pHash(c, r, 707) > 0.50) {
+          const tC = cA - 0.55 * Math.cos(baseAng);
+          const tR = rA - 0.55 * Math.sin(baseAng);
+          const treeRnd = pHash(tC, tR, 708);
+          const item = createContinuousItem(tC, tR, demW, demH, geoW, geoH, 1.25, treeRnd, undefined, 0, 0, 0.001);
+
+          if (treeRnd < 0.50) {
+            urbanTreesGreen.push(item);
+          } else if (treeRnd < 0.75) {
+            urbanTreesDeepGreen.push(item);
+          } else if (treeRnd < 0.90) {
+            urbanTreesYellow.push(item);
+          } else {
+            urbanTreesPink.push(item);
+          }
+        }
+      }
+    }
+  }
+
+  // 7.1 PLANO PILOTO DE BRASÍLIA - ARQUITETURA MONUMENTAL DE OSCAR NIEMEYER & LÚCIO COSTA
+  // A. Esplanada dos Ministérios (17 blocos de ministérios posicionados com precisão métrica entre a Catedral e o Congresso)
+  const esplanadaRot = 0.1112; // Alinhamento exato ao Eixo Monumental (+6.37 graus)
+  const espStartX = 1601.5;
+  const espEndX = 1628.5;
+  const espStartY = 1232.0;
+  const espEndY = 1235.0;
+
+  // Ala Norte da Esplanada (9 blocos ministeriais - SBN)
+  for (let k = 0; k < 9; k++) {
+    const frac = (k + 0.5) / 9.0;
+    const cNorth = espStartX + frac * (espEndX - espStartX);
+    const rNorth = espStartY + frac * (espEndY - espStartY) - 2.8; // Offset norte da pista
+    urbanMinistries.push(createContinuousItem(cNorth, rNorth, demW, demH, geoW, geoH, 1.35, 0.5, esplanadaRot, 0, 0, 0.002));
+    urbanTreesYellow.push(createContinuousItem(cNorth, rNorth + 0.9, demW, demH, geoW, geoH, 1.30, 0.8, 0, 0, 0, 0.001));
+  }
+
+  // Ala Sul da Esplanada (8 blocos ministeriais - SBS)
+  for (let k = 0; k < 8; k++) {
+    const frac = (k + 0.5) / 8.0;
+    const cSouth = espStartX + frac * (espEndX - espStartX);
+    const rSouth = espStartY + frac * (espEndY - espStartY) + 2.8; // Offset sul da pista
+    urbanMinistries.push(createContinuousItem(cSouth, rSouth, demW, demH, geoW, geoH, 1.35, 0.5, esplanadaRot, 0, 0, 0.002));
+    urbanTreesPink.push(createContinuousItem(cSouth, rSouth - 0.9, demW, demH, geoW, geoH, 1.30, 0.9, 0, 0, 0, 0.001));
+  }
+
+  // B. Congresso Nacional (Torres Gêmeas + Cúpulas da Câmara e Senado na cabeceira da Esplanada)
+  // urbanCongress substituído pelo modelo monumental OSM em buildOSMLandmarks
+
+  // C. Superquadras Residenciais de Brasília (Blocos sobre pilotis com jardins e gramados)
+  // Asa Sul (SQS)
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 3; col++) {
+      const sqC = 1618 + col * 4.2;
+      const sqR = 1243 + row * 4.6;
+      urbanSuperquadras.push(createContinuousItem(sqC, sqR, demW, demH, geoW, geoH, 1.25, 0.4, 0.10, 0, 0, 0.002));
+      urbanTreesGreen.push(createContinuousItem(sqC + 1.2, sqR + 1.0, demW, demH, geoW, geoH, 1.30, 0.5, 0, 0, 0, 0.001));
+      urbanTreesYellow.push(createContinuousItem(sqC - 1.2, sqR - 1.0, demW, demH, geoW, geoH, 1.25, 0.7, 0, 0, 0, 0.001));
+    }
+  }
+  // Asa Norte (SQN)
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 3; col++) {
+      const sqC = 1618 + col * 4.2;
+      const sqR = 1210 + row * 4.6;
+      urbanSuperquadras.push(createContinuousItem(sqC, sqR, demW, demH, geoW, geoH, 1.25, 0.6, -0.10, 0, 0, 0.002));
+      urbanTreesDeepGreen.push(createContinuousItem(sqC + 1.2, sqR + 1.0, demW, demH, geoW, geoH, 1.30, 0.6, 0, 0, 0, 0.001));
+      urbanTreesPink.push(createContinuousItem(sqC - 1.2, sqR - 1.0, demW, demH, geoW, geoH, 1.25, 0.8, 0, 0, 0, 0.001));
+    }
+  }
+
+  // 8. Soja (ID 39 - Formação Agrícola) - Linhas Mecanizadas de Semeadura
+  const soyBlockSize = 20;
+  const soyBCols = Math.ceil(demW / soyBlockSize);
+  const soyBRows = Math.ceil(demH / soyBlockSize);
+  const soyMaxR = soyBlockSize * 0.85;
+  const soyRowSpacing = 2.8 / dSqrt;
+  const soyAlongSpacing = 1.6 / dSqrt;
+  const soyNRows = Math.ceil(soyMaxR / soyRowSpacing);
+  const soyNPts = Math.ceil(soyMaxR / soyAlongSpacing);
+
+  for (let by = 0; by < soyBRows; by++) {
+    for (let bx = 0; bx < soyBCols; bx++) {
+      const c0 = bx * soyBlockSize;
+      const r0 = by * soyBlockSize;
+      let hasSoy = false;
+      for (let dr = 0; dr < soyBlockSize; dr += 4) {
+        for (let dc = 0; dc < soyBlockSize; dc += 4) {
+          const pr = Math.min(demH - 1, r0 + dr);
+          const pc = Math.min(demW - 1, c0 + dc);
+          if (rawClasses[pr * demW + pc] === 39) { hasSoy = true; break; }
+        }
+        if (hasSoy) break;
+      }
+      if (!hasSoy) continue;
+
+      const parcelAngle = ((pHash(bx, by, 180) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, 181) - 0.5) * 0.05;
+      const dirX = Math.cos(parcelAngle);
+      const dirY = Math.sin(parcelAngle);
+      const perpX = -Math.sin(parcelAngle);
+      const perpY = Math.cos(parcelAngle);
+      const cx = (bx + 0.5) * soyBlockSize;
+      const cy = (by + 0.5) * soyBlockSize;
+
+      for (let i = -soyNRows; i <= soyNRows; i++) {
+        for (let j = -soyNPts; j <= soyNPts; j++) {
+          const c = cx + i * soyRowSpacing * perpX + j * soyAlongSpacing * dirX;
+          const r = cy + i * soyRowSpacing * perpY + j * soyAlongSpacing * dirY;
+          if (c >= c0 && c < c0 + soyBlockSize && r >= r0 && r < r0 + soyBlockSize) {
+            const pc = Math.round(c);
+            const pr = Math.round(r);
+            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 39) {
+              const rnd = pHash(c, r, 185);
+              soybeanItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.40, rnd, -parcelAngle));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 9. Outras Lavouras Temporárias / Milho e Grãos (ID 41)
+  const tempBlockSize = 20;
+  const tempBCols = Math.ceil(demW / tempBlockSize);
+  const tempBRows = Math.ceil(demH / tempBlockSize);
+  const tempMaxR = tempBlockSize * 0.85;
+  const tempRowSpacing = 3.0 / dSqrt;
+  const tempAlongSpacing = 1.8 / dSqrt;
+  const tempNRows = Math.ceil(tempMaxR / tempRowSpacing);
+  const tempNPts = Math.ceil(tempMaxR / tempAlongSpacing);
+
+  for (let by = 0; by < tempBRows; by++) {
+    for (let bx = 0; bx < tempBCols; bx++) {
+      const c0 = bx * tempBlockSize;
+      const r0 = by * tempBlockSize;
+      let hasTemp = false;
+      for (let dr = 0; dr < tempBlockSize; dr += 4) {
+        for (let dc = 0; dc < tempBlockSize; dc += 4) {
+          const pr = Math.min(demH - 1, r0 + dr);
+          const pc = Math.min(demW - 1, c0 + dc);
+          if (rawClasses[pr * demW + pc] === 41) { hasTemp = true; break; }
+        }
+        if (hasTemp) break;
+      }
+      if (!hasTemp) continue;
+
+      const parcelAngle = ((pHash(bx, by, 210) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, 211) - 0.5) * 0.05;
+      const dirX = Math.cos(parcelAngle);
+      const dirY = Math.sin(parcelAngle);
+      const perpX = -Math.sin(parcelAngle);
+      const perpY = Math.cos(parcelAngle);
+      const cx = (bx + 0.5) * tempBlockSize;
+      const cy = (by + 0.5) * tempBlockSize;
+
+      for (let i = -tempNRows; i <= tempNRows; i++) {
+        for (let j = -tempNPts; j <= tempNPts; j++) {
+          const c = cx + i * tempRowSpacing * perpX + j * tempAlongSpacing * dirX;
+          const r = cy + i * tempRowSpacing * perpY + j * tempAlongSpacing * dirY;
+          if (c >= c0 && c < c0 + tempBlockSize && r >= r0 && r < r0 + tempBlockSize) {
+            const pc = Math.round(c);
+            const pr = Math.round(r);
+            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 41) {
+              const rnd = pHash(c, r, 215);
+              tempCropsItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.35, rnd, -parcelAngle));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 10. Campo Alagado e Veredas de Buriti (ID 11)
+  const wStep = 4.5 / dSqrt;
+  for (let r = 0; r < demH; r += wStep) {
+    for (let c = 0; c < demW; c += wStep) {
+      const cA = c + pHash(c, r, 251) * wStep;
+      const rA = r + pHash(c, r, 252) * wStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 11) {
+        const rndA = pHash(cA, rA, 253);
+        const tiltX = (pHash(cA, rA, 254) - 0.5) * 0.10;
+        const tiltZ = (pHash(cA, rA, 255) - 0.5) * 0.10;
+        wetlandItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.25 + rndA * 0.35, rndA, undefined, tiltX, tiltZ));
+      }
+    }
+  }
+
+  // 11. Solo Exposto & Cascalheiras (ID 25)
+  const bStep = 5.0 / dSqrt;
+  for (let r = 0; r < demH; r += bStep) {
+    for (let c = 0; c < demW; c += bStep) {
+      const cA = c + pHash(c, r, 271) * bStep;
+      const rA = r + pHash(c, r, 272) * bStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 25) {
+        bareItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.35, pHash(cA, rA, 273)));
+      }
+    }
+  }
+
+  // 12. Corpos Hídricos / Rios e Lago Paranoá (ID 33) - REDUZIDO DRASTICAMENTE CONFORME SOLICITADO
+  // Zero props na lâmina d'água aberta. Apenas discretos seixos de margem na linha de transição de terra/água
+  const hStep = 20.0 / dSqrt;
+  for (let r = 0; r < demH; r += hStep) {
+    for (let c = 0; c < demW; c += hStep) {
+      const cA = c + pHash(c, r, 291) * hStep;
+      const rA = r + pHash(c, r, 292) * hStep;
+      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
+      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
+      if (rawClasses[pixRA * demW + pixCA] === 33) {
+        // Checagem estrita de borda/margem (shoreline)
+        let isShoreline = false;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = pixRA + dy;
+          if (ny < 0 || ny >= demH) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = pixCA + dx;
+            if (nx < 0 || nx >= demW) continue;
+            if (rawClasses[ny * demW + nx] !== 33) {
+              isShoreline = true;
+              break;
+            }
+          }
+          if (isShoreline) break;
+        }
+        // Apenas se for margem e probabilidade baixa (máximo 15-20 pedras na orla de todo o DF)
+        if (isShoreline && pHash(cA, rA, 294) < 0.20) {
+          waterItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 0.80, pHash(cA, rA, 293)));
+        }
+      }
+    }
+  }
+
+  // 13. Rebanhos Bovinos (Nelore, Malhado P&B, Girolando Castanho) e Cavalos nas Pastagens (ID 15 & 21)
+  for (let r = 0; r < demH; r += 12) {
+    for (let c = 0; c < demW; c += 12) {
+      const centerC = c + pHash(c, r, 501) * 12;
+      const centerR = r + pHash(c, r, 502) * 12;
+      const pixC = Math.max(0, Math.min(demW - 1, Math.round(centerC)));
+      const pixR = Math.max(0, Math.min(demH - 1, Math.round(centerR)));
+      const cls = rawClasses[pixR * demW + pixC];
+      if (cls === 15 || cls === 21) {
+        if (pHash(c, r, 503) > 0.55) {
+          const herdSize = 3 + Math.floor(pHash(c, r, 504) * 4); // 3 a 6 por rebanho
+          for (let k = 0; k < herdSize; k++) {
+            const herdAngle = pHash(c, r, k * 7 + 510) * Math.PI * 2;
+            const herdDist = 0.8 + Math.sqrt(pHash(c, r, k * 7 + 511)) * 3.8;
+            const cowC = centerC + Math.cos(herdAngle) * herdDist;
+            const cowR = centerR + Math.sin(herdAngle) * herdDist;
+            const cowPixC = Math.max(0, Math.min(demW - 1, Math.round(cowC)));
+            const cowPixR = Math.max(0, Math.min(demH - 1, Math.round(cowR)));
+            const cowCls = rawClasses[cowPixR * demW + cowPixC];
+            if (cowCls === 15 || cowCls === 21) {
+              const cowRnd = pHash(cowC, cowR, k * 7 + 512);
+              const cowRot = pHash(cowC, cowR, k * 7 + 513) * Math.PI * 2;
+              const cowScale = 1.15 + (cowRnd - 0.5) * 0.20;
+              const item = createContinuousItem(cowC, cowR, demW, demH, geoW, geoH, cowScale, cowRnd, cowRot, 0, 0, 0.001);
+
+              if (cowRnd < 0.78) {
+                cattleNeloreItems.push(item);
+              } else if (cowRnd < 0.90) {
+                cattleSpottedItems.push(item);
+              } else {
+                cattleBrownItems.push(item);
+              }
+            }
+          }
+
+          // Cavalo pastando no piquete (~15% dos rebanhos)
+          if (pHash(c, r, 540) > 0.82) {
+            const horseAngle = pHash(c, r, 541) * Math.PI * 2;
+            const horseDist = 2.0 + pHash(c, r, 542) * 2.5;
+            const horseC = centerC + Math.cos(horseAngle) * horseDist;
+            const horseR = centerR + Math.sin(horseAngle) * horseDist;
+            const horsePixC = Math.max(0, Math.min(demW - 1, Math.round(horseC)));
+            const horsePixR = Math.max(0, Math.min(demH - 1, Math.round(horseR)));
+            if (rawClasses[horsePixR * demW + horsePixC] === 15 || rawClasses[horsePixR * demW + horsePixC] === 21) {
+              const horseRnd = pHash(horseC, horseR, 543);
+              const horseRot = pHash(horseC, horseR, 544) * Math.PI * 2;
+              horseItems.push(createContinuousItem(horseC, horseR, demW, demH, geoW, geoH, 1.20, horseRnd, horseRot, 0, 0, 0.001));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // REBANHO GARANTIDO NO PRESET "Rebanho no Pasto 🐄" (Brazlândia - col: 427, row: 811)
+  const presetCows = [
+    { dc: 0, dr: 0, rot: 0.6, type: 'nelore', scale: 1.30 },
+    { dc: -0.8, dr: 0.6, rot: 1.2, type: 'nelore', scale: 1.25 },
+    { dc: 0.7, dr: -0.6, rot: 2.1, type: 'nelore', scale: 1.28 },
+    { dc: -1.3, dr: -0.4, rot: 0.2, type: 'spotted', scale: 1.25 },
+    { dc: 1.2, dr: 0.8, rot: 3.4, type: 'brown', scale: 1.22 },
+    { dc: -0.5, dr: -1.4, rot: 4.2, type: 'nelore', scale: 1.26 },
+    { dc: 1.6, dr: -1.2, rot: 1.9, type: 'spotted', scale: 1.24 },
+    { dc: -1.8, dr: 1.2, rot: 5.1, type: 'horse', scale: 1.28 },
+    { dc: -2.4, dr: 0.3, rot: 4.8, type: 'horse', scale: 1.26 }
+  ];
+  for (const pc of presetCows) {
+    const cCow = 427 + pc.dc;
+    const rCow = 811 + pc.dr;
+    const item = createContinuousItem(cCow, rCow, demW, demH, geoW, geoH, pc.scale, 0.5, pc.rot, 0, 0, 0.001);
+    if (pc.type === 'nelore') cattleNeloreItems.push(item);
+    else if (pc.type === 'spotted') cattleSpottedItems.push(item);
+    else if (pc.type === 'brown') cattleBrownItems.push(item);
+    else if (pc.type === 'horse') horseItems.push(item);
+  }
+
+  // 14. Maquinário Agrícola (Tratores e Colheitadeiras nas lavouras do PAD-DF - ID 39 & 41)
+  for (let r = 0; r < demH; r += 12) {
+    for (let c = 0; c < demW; c += 12) {
+      const machC = c + pHash(c, r, 601) * 12;
+      const machR = r + pHash(c, r, 602) * 12;
+      const pixC = Math.max(0, Math.min(demW - 1, Math.round(machC)));
+      const pixR = Math.max(0, Math.min(demH - 1, Math.round(machR)));
+      const cls = rawClasses[pixR * demW + pixC];
+      if (cls === 39 || cls === 41) {
+        if (pHash(c, r, 603) > 0.45) {
+          const seedAngle = (cls === 39) ? 180 : 210;
+          const bx = Math.floor(machC / 20);
+          const by = Math.floor(machR / 20);
+          const parcelAngle = ((pHash(bx, by, seedAngle) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, seedAngle + 1) - 0.5) * 0.05;
+          const forward = pHash(c, r, 604) > 0.5;
+          const machRot = forward ? (Math.PI - parcelAngle) : -parcelAngle;
+          const machRnd = pHash(machC, machR, 605);
+          const item = createContinuousItem(machC, machR, demW, demH, geoW, geoH, 1.35, machRnd, machRot, 0, 0, 0.002);
+
+          if (machRnd < 0.40) {
+            tractorsGreenItems.push(item);
+          } else if (machRnd < 0.65) {
+            tractorsRedItems.push(item);
+          } else {
+            harvesterItems.push(item);
+          }
+        }
+      }
+    }
+  }
+
+  // MAQUINÁRIO GARANTIDO NO PRESET "Colheitadeiras & Tratores 🚜" (Lavouras de Soja do PAD-DF - col: 3119, row: 1697)
+  const soyHeroBx = Math.floor(3119 / 20);
+  const soyHeroBy = Math.floor(1697 / 20);
+  const soyHeroParcelAng = ((pHash(soyHeroBx, soyHeroBy, 180) * 8) | 0) * (Math.PI / 8) + (pHash(soyHeroBx, soyHeroBy, 181) - 0.5) * 0.05;
+  const machSoyRot = Math.PI - soyHeroParcelAng;
+  const perpSoyX = -Math.sin(soyHeroParcelAng);
+  const perpSoyY = Math.cos(soyHeroParcelAng);
+  const dirSoyX = Math.cos(soyHeroParcelAng);
+  const dirSoyY = Math.sin(soyHeroParcelAng);
+
+  // Colheitadeira Draper trabalhando na linha de soja
+  const itemHarvester1 = createContinuousItem(3119, 1697, demW, demH, geoW, geoH, 1.50, 0.5, machSoyRot, 0, 0, 0.002);
+  harvesterItems.push(itemHarvester1);
+
+  // Trator John Deere (Verde) com carretel graneleiro acompanhando na linha paralela adjacente
+  const itemTractorSide = createContinuousItem(3119 + perpSoyX * 2.8, 1697 + perpSoyY * 2.8, demW, demH, geoW, geoH, 1.45, 0.5, machSoyRot, 0, 0, 0.002);
+  tractorsGreenItems.push(itemTractorSide);
+
+  // Trator Case IH (Vermelho) trabalhando com grade aradora mais à frente na linha de plantio
+  const itemTractorAhead = createContinuousItem(3119 + dirSoyX * 8.0, 1697 + dirSoyY * 8.0, demW, demH, geoW, geoH, 1.45, 0.5, machSoyRot, 0, 0, 0.002);
+  tractorsRedItems.push(itemTractorAhead);
+
+  // Materiais PBR Sólidos com Vertex Colors para Vegetação e Elementos 3D
+
   // Materiais PBR Sólidos com Vertex Colors para Vegetação e Elementos 3D
   const botanicalMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -3860,6 +4441,11 @@ function onWindowResize() {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+
+  // Execução do gerenciador de LOD com verificação de frustum e distâncias
+  if (state.lod && state.lod.enabled) {
+    updateLODVisibility();
+  }
 
   // Deslocamento suave das nuvens no céu
   if (cloudMesh && cloudMesh.material && cloudMesh.material.map) {
