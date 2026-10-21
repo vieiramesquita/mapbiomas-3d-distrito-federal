@@ -2356,6 +2356,10 @@ function buildRoadsMesh(data) {
   roadsLineMesh = new THREE.LineSegments(geom, mat);
   roadsLineMesh.visible = (state.roads && state.roads.enabled !== undefined) ? state.roads.enabled : true;
   roadsGroup.add(roadsLineMesh);
+
+  const totalWays = (data.tier1 ? data.tier1.length : 0) + (data.tier2 ? data.tier2.length : 0) + (data.tier3 ? data.tier3.length : 0);
+  const badge = document.getElementById('badge-roads-count');
+  if (badge) badge.textContent = `${totalWays.toLocaleString('pt-BR')} vias`;
 }
 
 function updateRoadsElevation() {
