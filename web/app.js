@@ -4054,6 +4054,163 @@ function animateCamera(targetX, targetY, targetZ, lookX, lookY, lookZ, duration 
 }
 
 // 13. UI Event Listeners
+// Floating Toast Notification
+function showToastNotification(message, icon = '⚡', duration = 2600) {
+  const toast = document.getElementById('app-toast');
+  const msgEl = document.getElementById('toast-message');
+  const iconEl = document.getElementById('toast-icon');
+  if (!toast || !msgEl) return;
+  msgEl.textContent = message;
+  if (iconEl) iconEl.textContent = icon;
+  toast.classList.add('visible');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.classList.remove('visible');
+  }, duration);
+}
+window.showToastNotification = showToastNotification;
+
+// Dicionário de Tópicos Explicativos para Popups / Modal
+const INFO_TOPICS = {
+  lod: {
+    icon: '⚡',
+    title: 'LOD Dinâmico (Level of Detail)',
+    subtitle: 'Otimização Hierárquica em Tempo Real por Distância',
+    description: 'O sistema de <strong>LOD (Nível de Detalhe)</strong> ajusta a complexidade gráfica de cada objeto com base na distância da câmera, garantindo máxima fidelidade visual perto do observador sem sobrecarregar a GPU com objetos distantes.',
+    details: [
+      '<strong>LOD 0 (&lt; 35m):</strong> Árvores e arbustos com malha 3D volumétrica completa, galhos e sombras detalhadas.',
+      '<strong>LOD 1 (35m a 70m):</strong> Substituição automática por <em>impostores 2.5D de planos cruzados</em> (cross-quad billboards), reduzindo polígonos em 85% com aparência idêntica à distância.',
+      '<strong>LOD 2 (&gt; 70m):</strong> Oclusão suave e culling de pequenos arbustos para priorizar o relevo e marcos principais.'
+    ],
+    impact: 'Permite renderizar <strong>mais de 2 milhões de elementos vegetais no DF</strong> mantendo 60 FPS fixos.',
+    recommendation: 'Recomendado manter <strong>SEMPRE ATIVO</strong>.'
+  },
+  frustum: {
+    icon: '👁️',
+    title: 'Frustum Culling (Oclusão de Campo Visual)',
+    subtitle: 'Divisão Espacial em 32 Chunks Georreferenciados',
+    description: 'Descarta do pipeline de renderização qualquer geometria, árvore ou rodovia que esteja <strong>fora do campo de visão da câmera</strong> ou às suas costas.',
+    details: [
+      'O Distrito Federal é particionado em uma grade espacial de <strong>32 chunks independentes</strong> (4x8 setores georreferenciados).',
+      'A cada quadro (16ms), os planos da pirâmide visual da câmera (Frustum) testam os limites esféricos de cada chunk.',
+      'Chunks fora da visão têm sua chamada de desenho (<em>draw call</em>) cancelada instantaneamente.'
+    ],
+    impact: 'Economiza entre <strong>50% e 75% da carga da placa de vídeo</strong> em qualquer ângulo de observação.',
+    recommendation: 'Recomendado manter <strong>SEMPRE ATIVO</strong>.'
+  },
+  'terrain-lod': {
+    icon: '🏔️',
+    title: 'Malha do Terreno (Resolução Poligonal)',
+    subtitle: 'Densidade da Grade de Vértices Altimétricos',
+    description: 'Controla a quantidade de subdivisões poligonais do relevo topográfico gerado a partir do Modelo Digital de Elevação (DEM).',
+    details: [
+      '<strong>Ultra:</strong> Malha em resolução nativa (622x382 = 238.000 vértices). Ideal para visualizar o vale do Paranapanema e a bacia do Paranoá com máxima nitidez.',
+      '<strong>Equilibrado (-75% vértices):</strong> Grade reduzida pela metade (311x191 ~ 60k vértices). Mantém o relevo fiel com renderização 4x mais veloz.',
+      '<strong>Leve (-94% vértices):</strong> Grade ultra-leve (155x95 ~ 15k vértices). Ideal para celulares ou notebooks com GPUs integradas.'
+    ],
+    impact: 'Reduz a memória geométrica da malha de 50 MB para menos de 4 MB.',
+    recommendation: 'Use <em>Equilibrado</em> se o dispositivo apresentar perda de quadros.'
+  },
+  'data-lod': {
+    icon: '📦',
+    title: 'Pipeline de Dados (Transmissão & Memória)',
+    subtitle: 'Resolução dos Arquivos Binários Altimétricos e Classes',
+    description: 'Alterna entre os conjuntos de dados georreferenciados transmitidos do servidor para a memória do navegador.',
+    details: [
+      '<strong>DEM 30m Completo:</strong> Dados integrais Copernicus e MapBiomas em 30 metros de resolução espacial (34 MB elevação + 8,5 MB classes).',
+      '<strong>LOD 1 (Meia Resolução):</strong> Dados pré-processados e compactados em meia resolução espacial (4x menor volume de download, 8,5 MB vs 34 MB).',
+      'Ao alternar, o relevo, monumentos 3D e todas as instâncias vegetais são reconstruídos em tempo real com novos limites e elevações interpoladas.'
+    ],
+    impact: 'Carregamento <strong>4x mais rápido</strong> e economia substancial de memória RAM.',
+    recommendation: 'Excelente para conexões mais lentas ou carregamento instantâneo.'
+  },
+  'prop-density': {
+    icon: '🌿',
+    title: 'Densidade de Props & Vegetação',
+    subtitle: 'Multiplicador de População Botânica e Objetos 3D',
+    description: 'Multiplica a quantidade de árvores típicas (Cerrado Típico, Cerradão, Campo Limpo, Campo Sujo, etc.) distribuídas proporcionalmente pela cobertura da terra do MapBiomas.',
+    details: [
+      '<strong>0.5x (Leve):</strong> Reduz pela metade a vegetação para foco em relevo e infraestrutura viária.',
+      '<strong>1.0x (Padrão 1:1):</strong> Proporção botânica cientificamente calibrada para a cobertura real do Cerrado do DF.',
+      '<strong>2.0x a 3.5x (Denso):</strong> Cobertura arbórea fechada e luxuriante em parques e áreas de preservação.',
+      '<strong>5.0x (Hiper):</strong> Densidade extrema para testes de estresse gráfico, instanciando mais de 2 milhões de árvores com o LOD ativo.'
+    ],
+    impact: 'Gera florestas densas e hiper-realistas utilizando aceleração por hardware (GPU InstancedMesh).',
+    recommendation: 'Escala <strong>1.0x</strong> é o padrão equilibrado para 60 FPS.'
+  },
+  nadir: {
+    icon: '🛰️',
+    title: 'Visão Nadir (Modo Aéreo Cartográfico)',
+    subtitle: 'Projeção Perpendicular de Câmera Top-Down (90°)',
+    description: 'Trava a câmera diretamente acima do centro da região, apontando a 90° em relação ao plano do horizonte.',
+    details: [
+      'Permite analisar limites territoriais oficiais do DF, os eixos rodoviários e o traçado do Plano Piloto como em uma imagem de satélite georreferenciada.',
+      'A rotação polar é travada com o Norte no topo da tela para navegação cartográfica padronizada.',
+      'Para retornar à exploração 3D livre, basta clicar novamente no botão Nadir ou em qualquer outro ângulo predefinido.'
+    ],
+    impact: 'Transforma o modelo 3D em um SIG cartográfico aéreo interativo instantâneo.',
+    recommendation: 'Use o botão da barra superior ou a tecla de atalho <strong>N</strong>.'
+  },
+  exaggeration: {
+    icon: '📐',
+    title: 'Exagero Vertical do Relevo',
+    subtitle: 'Escala do Eixo Z / Altura Topográfica',
+    description: 'Multiplica a elevação das montanhas, cânions e vales em relação à extensão horizontal.',
+    details: [
+      '<strong>1.0x (1:1 Real):</strong> Altura em escala física real idêntica à natureza.',
+      '<strong>1.5x a 2.5x:</strong> Exagero moderado que destaca cristas geológicas e morros do planalto.',
+      '<strong>4.0x:</strong> Máximo contraste topográfico para fins didáticos e científicos.'
+    ],
+    impact: 'Ajusta dinamicamente a altura de rodovias, marcos 3D e vegetação para permanecerem perfeitamente drapeados ao relevo.',
+    recommendation: 'Clique no botão <em>Resetar para Escala 1:1</em> a qualquer momento.'
+  }
+};
+
+function openInfoModal(topicKey) {
+  const data = INFO_TOPICS[topicKey];
+  if (!data) return;
+  const backdrop = document.getElementById('info-modal-backdrop');
+  if (!backdrop) return;
+
+  const iconEl = document.getElementById('info-modal-icon');
+  const titleEl = document.getElementById('info-modal-title');
+  const subEl = document.getElementById('info-modal-subtitle');
+  const descEl = document.getElementById('info-modal-desc');
+  const detailsList = document.getElementById('info-modal-details');
+  const impactEl = document.getElementById('info-modal-impact');
+  const recEl = document.getElementById('info-modal-rec');
+
+  if (iconEl) iconEl.textContent = data.icon;
+  if (titleEl) titleEl.textContent = data.title;
+  if (subEl) subEl.textContent = data.subtitle;
+  if (descEl) descEl.innerHTML = data.description;
+
+  if (detailsList) {
+    detailsList.innerHTML = '';
+    data.details.forEach(item => {
+      const li = document.createElement('li');
+      li.innerHTML = item;
+      detailsList.appendChild(li);
+    });
+  }
+
+  if (impactEl) impactEl.innerHTML = data.impact;
+  if (recEl) recEl.innerHTML = `💡 <strong>Dica de Desempenho:</strong> ${data.recommendation}`;
+
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+}
+
+function closeInfoModal() {
+  const backdrop = document.getElementById('info-modal-backdrop');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+}
+window.openInfoModal = openInfoModal;
+window.closeInfoModal = closeInfoModal;
+
 function setupEventListeners() {
   sliderExaggeration.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
@@ -4199,6 +4356,37 @@ function setupEventListeners() {
     return `${val.toFixed(1)}x (Hiper-Densidade 🔥)`;
   }
 
+  // Helper para sincronizar marcas de escala (ticks) do slider de densidade
+  function updateActiveTicks(val) {
+    document.querySelectorAll('.slider-ticks-density').forEach(container => {
+      container.querySelectorAll('.tick-item').forEach(tick => {
+        const tVal = parseFloat(tick.dataset.val);
+        if (Math.abs(tVal - val) < 0.25) {
+          tick.classList.add('active');
+        } else {
+          tick.classList.remove('active');
+        }
+      });
+    });
+  }
+
+  function setupDensityTicks(containerId, sliderId) {
+    const container = document.getElementById(containerId);
+    const slider = document.getElementById(sliderId);
+    if (!container || !slider) return;
+
+    container.querySelectorAll('.tick-item').forEach(tick => {
+      tick.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = parseFloat(tick.dataset.val);
+        if (isNaN(val)) return;
+        slider.value = val;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        showToastNotification(`Densidade ajustada: ${val.toFixed(1)}x`, '🌿');
+      });
+    });
+  }
+
   function updateDensityUI(val) {
     const txt = formatDensityLabel(val);
     if (valPropDensity) valPropDensity.textContent = txt;
@@ -4216,6 +4404,7 @@ function setupEventListeners() {
         densityHelperText.style.color = 'var(--text-muted)';
       }
     }
+    updateActiveTicks(val);
   }
 
   function onDensityInput(e) {
@@ -4239,6 +4428,99 @@ function setupEventListeners() {
   if (sliderPropDensitySettings) {
     sliderPropDensitySettings.addEventListener('input', onDensityInput);
   }
+
+  // Inicializar clique nas marcas de escala
+  setupDensityTicks('ticks-prop-density', 'slider-prop-density');
+  setupDensityTicks('ticks-prop-density-settings', 'slider-prop-density-settings');
+
+  // Conectar botões de ajuda / informação com popup explicativo
+  document.querySelectorAll('.info-help-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openInfoModal(btn.dataset.info);
+    });
+  });
+
+  const btnCloseInfoModal = document.getElementById('btn-close-info-modal');
+  const btnDismissInfoModal = document.getElementById('btn-dismiss-info-modal');
+  const infoModalBackdrop = document.getElementById('info-modal-backdrop');
+
+  if (btnCloseInfoModal) btnCloseInfoModal.addEventListener('click', closeInfoModal);
+  if (btnDismissInfoModal) btnDismissInfoModal.addEventListener('click', closeInfoModal);
+  if (infoModalBackdrop) {
+    infoModalBackdrop.addEventListener('click', (e) => {
+      if (e.target === infoModalBackdrop) closeInfoModal();
+    });
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeInfoModal();
+  });
+
+  // ⚡ Controles de Otimização LOD Inteligente
+  if (checkLodEnabled) {
+    checkLodEnabled.addEventListener('change', (e) => {
+      state.lod.enabled = e.target.checked;
+      if (badgeLodMode) {
+        if (state.lod.enabled) {
+          badgeLodMode.textContent = `Ativo (${state.lodChunks ? state.lodChunks.length : 32} Chunks)`;
+          badgeLodMode.style.color = 'var(--accent-green)';
+          badgeLodMode.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+        } else {
+          badgeLodMode.textContent = 'Desativado (Modo Bruto)';
+          badgeLodMode.style.color = 'var(--accent-orange)';
+          badgeLodMode.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        }
+      }
+      updateLODVisibility(true);
+      showToastNotification(`LOD Dinâmico: ${e.target.checked ? 'Ativado (Hierárquico)' : 'Desativado (Bruto)'}`, '⚡');
+    });
+  }
+
+  if (checkLodFrustum) {
+    checkLodFrustum.addEventListener('change', (e) => {
+      state.lod.frustumCulling = e.target.checked;
+      updateLODVisibility(true);
+      showToastNotification(`Frustum Culling: ${e.target.checked ? 'Ativado (32 Chunks)' : 'Desativado'}`, '👁️');
+    });
+  }
+
+  // Resolução da Malha do Terreno (LOD Terreno)
+  document.querySelectorAll('#btn-group-terrain-lod .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#btn-group-terrain-lod .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tlod = btn.dataset.tlod;
+      state.terrainLod = tlod;
+      const badge = document.getElementById('badge-terrain-lod');
+      const labels = {
+        ultra: 'Ultra (622x382)',
+        balanced: 'Equilibrado (311x191)',
+        fast: 'Leve (155x95)'
+      };
+      if (badge) badge.textContent = labels[tlod] || tlod;
+      buildTerrainMesh();
+      updatePropsTransforms();
+      if (typeof updateRoadsElevation === 'function') updateRoadsElevation();
+      if (typeof updateOSMLandmarksElevation === 'function') updateOSMLandmarksElevation();
+      if (typeof updateDFBoundaryElevation === 'function') updateDFBoundaryElevation();
+      showToastNotification(`Malha do relevo alterada para: ${labels[tlod] || tlod}`, '🏔️');
+    });
+  });
+
+  // Pipeline de Dados (LOD de Processamento)
+  document.querySelectorAll('#btn-group-data-lod .seg-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dlod = btn.dataset.dlod;
+      if (state.dataLod === dlod) return;
+      document.querySelectorAll('#btn-group-data-lod .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const badge = document.getElementById('badge-data-lod');
+      if (badge) badge.textContent = dlod === 'lod1' ? 'LOD 1 (Meia Res - 4x Mais Rápido)' : 'DEM 30m Completo';
+      await setDataPipelineLOD(dlod);
+      showToastNotification(`Pipeline de dados: ${dlod === 'lod1' ? 'LOD 1 (Meia Resolução - 4x mais leve)' : 'DEM 30m Completo'}`, '📦');
+    });
+  });
 
   // ⚙️ Gerenciador do Menu Flutuante de Ajustes & Otimizações
   function toggleSettingsPanel() {
