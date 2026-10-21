@@ -21,6 +21,18 @@ const state = {
   demDimensions: { width: 3738, height: 2294 },
   terrainSpan: { width: 200, height: 122.74 },
   baseHeight: 1.1847, // 1:1 Real Metric Scale (699m / 49500m * 200 = 2.82424 Three.js units)
+  totalPropsCount: 0,
+  activePropsCount: 0,
+  visibleChunksCount: 0,
+  terrainLod: 'ultra', // 'ultra' (622x382), 'balanced' (311x191), 'fast' (155x95)
+  dataLod: 'full', // 'full' (DEM 30m) ou 'lod1' (meia-resolução)
+  lodChunks: [],
+  lod: {
+    enabled: true,
+    frustumCulling: true,
+    nearDistance: 35.0, // < 35 units = LOD 0 (3D Sólido completo + micro-props)
+    farDistance: 70.0   // 35-70 units = LOD 1 (Impostores 2.5D), > 70 units = LOD 2
+  },
   roads: { enabled: true, tier1: true, tier2: true, tier3: true },
   landmarks: { enabled: true, scale: 1.0 },
   props: {
@@ -89,9 +101,28 @@ const checkPropsShadows = document.getElementById('check-props-shadows');
 const sliderPropScale = document.getElementById('slider-prop-scale');
 const valPropScale = document.getElementById('val-prop-scale');
 const badgePropsCount = document.getElementById('badge-props-count');
-const btnIncreaseDensity = document.getElementById('btn-increase-density');
+const sliderPropDensity = document.getElementById('slider-prop-density');
+const sliderPropDensitySettings = document.getElementById('slider-prop-density-settings');
 const valPropDensity = document.getElementById('val-prop-density');
-const badgeDensityNext = document.getElementById('badge-density-next');
+const valPropDensitySettings = document.getElementById('val-prop-density-settings');
+const badgeDensityMultiplier = document.getElementById('badge-density-multiplier');
+const densityHelperText = document.getElementById('density-helper-text');
+
+// Settings Panel DOM Elements
+const settingsPanel = document.getElementById('settings-panel');
+const btnOpenSettings = document.getElementById('btn-open-settings');
+const btnOpenSettingsSide = document.getElementById('btn-open-settings-side');
+const btnCloseSettings = document.getElementById('btn-close-settings');
+
+// LOD DOM Elements
+const checkLodEnabled = document.getElementById('check-lod-enabled');
+const checkLodFrustum = document.getElementById('check-lod-frustum');
+const badgeLodMode = document.getElementById('badge-lod-mode');
+const statLodChunks = document.getElementById('stat-lod-chunks');
+const statLodProps = document.getElementById('stat-lod-props');
+const statLodSavings = document.getElementById('stat-lod-savings');
+const badgeTerrainLod = document.getElementById('badge-terrain-lod');
+const badgeDataLod = document.getElementById('badge-data-lod');
 
 // 1. Boot Application
 window.addEventListener('DOMContentLoaded', init);
@@ -588,6 +619,28 @@ async function loadTextures() {
 
   // Procedural detail normal map for micro-topography & pasture grass relief
   textures.normalDetail = generateTerrainNormalMap();
+
+  // Load High-Res Impostor Textures for Hierarchical LOD (2.5D Billboards)
+  textures.impostors = {};
+  const impostorList = [
+    { key: 'forest', file: 'tree_tropical.png' },
+    { key: 'cerrado_tree', file: 'tree_cerrado.png' },
+    { key: 'cerrado_shrub', file: 'shrub_cerrado.png' },
+    { key: 'silviculture', file: 'tree_eucalyptus.png' },
+    { key: 'rocks', file: 'rock_rupestre.png' }
+  ];
+
+  await Promise.all(impostorList.map(async item => {
+    try {
+      const tex = await loadTex(`public/impostors/${item.file}`);
+      tex.generateMipmaps = true;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      textures.impostors[item.key] = tex;
+    } catch (err) {
+      console.warn(`Impostor texture ${item.file} não carregada:`, err);
+    }
+  }));
 }
 
 function generateHypsometricTexture() {
@@ -680,16 +733,28 @@ function getBilinearElevation(normU, normV, demW, demH) {
 
 // 7. Build 3D Terrain Meshes (Base Satellite + Overlaid MapBiomas)
 // Malha de alta fidelidade: 825x423 segmentos (350.000+ vértices) para reproduzir microtopografia nítida
-function buildTerrainMesh() {
-  const segW = TERRAIN_SEG_W;
-  const segH = TERRAIN_SEG_H;
+// Suporta LOD Dinâmico de Malha: Ultra (622x382), Equilibrado (311x191), Leve (155x95)
+function buildTerrainMesh(customSegW, customSegH) {
+  let segW = customSegW;
+  let segH = customSegH;
+
+  if (!segW || !segH) {
+    if (state.terrainLod === 'balanced') {
+      segW = 311; segH = 191;
+    } else if (state.terrainLod === 'fast') {
+      segW = 155; segH = 95;
+    } else {
+      segW = 622; segH = 382;
+    }
+  }
+
   const geoW = state.terrainSpan.width;
   const geoH = state.terrainSpan.height;
 
-  terrainGeometry = new THREE.PlaneGeometry(geoW, geoH, segW, segH);
-  terrainGeometry.rotateX(-Math.PI / 2);
+  const newGeometry = new THREE.PlaneGeometry(geoW, geoH, segW, segH);
+  newGeometry.rotateX(-Math.PI / 2);
 
-  const posAttr = terrainGeometry.attributes.position;
+  const posAttr = newGeometry.attributes.position;
   const count = posAttr.count;
 
   const demW = state.demDimensions.width;
@@ -706,7 +771,17 @@ function buildTerrainMesh() {
   }
 
   posAttr.needsUpdate = true;
-  terrainGeometry.computeVertexNormals();
+  newGeometry.computeVertexNormals();
+
+  if (terrainGeometry) terrainGeometry.dispose();
+  terrainGeometry = newGeometry;
+
+  if (terrainMesh && overlayMesh) {
+    terrainMesh.geometry = terrainGeometry;
+    overlayMesh.geometry = terrainGeometry;
+    buildTerrainSkirt();
+    return;
+  }
 
   // Base Terrain Mesh (Satellite)
   const baseMat = new THREE.MeshStandardMaterial({
@@ -754,8 +829,8 @@ function buildTerrainSkirt() {
     if (skirtGeometry) skirtGeometry.dispose();
   }
 
-  const segW = TERRAIN_SEG_W;
-  const segH = TERRAIN_SEG_H;
+  const segW = terrainGeometry && terrainGeometry.parameters ? terrainGeometry.parameters.widthSegments : 622;
+  const segH = terrainGeometry && terrainGeometry.parameters ? terrainGeometry.parameters.heightSegments : 382;
   const geoW = state.terrainSpan.width;
   const geoH = state.terrainSpan.height;
   const demW = state.demDimensions.width;
@@ -2633,682 +2708,242 @@ function buildPropsMeshes() {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   }
 
-  // 1. Mata Tropical / Floresta Estacional & Galeria (ID 3) - ADENSADA EM CORREDORES DENSOS RIPÁRIOS
-  const fStep = 2.4 / dSqrt; // Grid densificado para formar dossel fechado ao longo de cursos d'água
-  for (let r = 0; r < demH; r += fStep) {
-    for (let c = 0; c < demW; c += fStep) {
-      const cA = c + pHash(c, r, 11) * fStep;
-      const rA = r + pHash(c, r, 12) * fStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 3) {
-        const rndA = pHash(cA, rA, 13);
-        const tiltX = (pHash(cA, rA, 14) - 0.5) * 0.08;
-        const tiltZ = (pHash(cA, rA, 15) - 0.5) * 0.08;
-        const scaleBase = 1.30 + (rndA > 0.65 ? 0.35 : rndA * 0.20);
-        forestItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, scaleBase, rndA, undefined, tiltX, tiltZ));
-      }
+  // Materiais Impostores 2.5D (LOD 1 & 2) com AlphaTest
+  const impostorMats = {
+    forest: textures.impostors && textures.impostors.forest ? new THREE.MeshStandardMaterial({
+      map: textures.impostors.forest,
+      alphaTest: 0.45,
+      roughness: 0.8,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    }) : botanicalMat,
+    cerrado_tree: textures.impostors && textures.impostors.cerrado_tree ? new THREE.MeshStandardMaterial({
+      map: textures.impostors.cerrado_tree,
+      alphaTest: 0.45,
+      roughness: 0.8,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    }) : botanicalMat,
+    cerrado_shrub: textures.impostors && textures.impostors.cerrado_shrub ? new THREE.MeshStandardMaterial({
+      map: textures.impostors.cerrado_shrub,
+      alphaTest: 0.45,
+      roughness: 0.8,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    }) : botanicalMat,
+    silviculture: textures.impostors && textures.impostors.silviculture ? new THREE.MeshStandardMaterial({
+      map: textures.impostors.silviculture,
+      alphaTest: 0.45,
+      roughness: 0.8,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    }) : botanicalMat,
+    rocks: textures.impostors && textures.impostors.rocks ? new THREE.MeshStandardMaterial({
+      map: textures.impostors.rocks,
+      alphaTest: 0.45,
+      roughness: 0.8,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    }) : rockMat
+  };
 
-      // Segundo exemplar em sub-amostragem para formar dossel contínuo fechado
-      const cB = c + pHash(c, r, 21) * fStep;
-      const rB = r + pHash(c, r, 22) * fStep;
-      const pixCB = Math.max(0, Math.min(demW - 1, Math.round(cB)));
-      const pixRB = Math.max(0, Math.min(demH - 1, Math.round(rB)));
-      if (rawClasses[pixRB * demW + pixCB] === 3 && pHash(cB, rB, 23) > 0.35) {
-        const rndB = pHash(cB, rB, 24);
-        const scaleB = 1.15 + rndB * 0.30;
-        forestItems.push(createContinuousItem(cB, rB, demW, demH, geoW, geoH, scaleB, rndB));
-      }
-    }
-  }
+  // Geometrias Impostoras Cross-Quad 2.5D
+  const impostorGeos = {
+    forest: createCrossQuadGeometry(0.082, 0.095),
+    cerrado_tree: createCrossQuadGeometry(0.065, 0.075),
+    cerrado_shrub: createCrossQuadGeometry(0.042, 0.042),
+    silviculture: createCrossQuadGeometry(0.045, 0.12),
+    rocks: createCrossQuadGeometry(0.07, 0.05)
+  };
 
-  // 2. Cerrado & Arbustos (ID 4 - Formação Savânica)
-  const cStep = 6.8 / dSqrt;
-  for (let r = 0; r < demH; r += cStep) {
-    for (let c = 0; c < demW; c += cStep) {
-      const cA = c + pHash(c, r, 31) * cStep;
-      const rA = r + pHash(c, r, 32) * cStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 4) {
-        const rndA = pHash(cA, rA, 33);
-        const tiltX = (pHash(cA, rA, 34) - 0.5) * 0.24;
-        const tiltZ = (pHash(cA, rA, 35) - 0.5) * 0.24;
-        cerradoTreeItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.35, rndA, undefined, tiltX, tiltZ));
-      }
-
-      const cB = c + pHash(c, r, 41) * cStep;
-      const rB = r + pHash(c, r, 42) * cStep;
-      const pixCB = Math.max(0, Math.min(demW - 1, Math.round(cB)));
-      const pixRB = Math.max(0, Math.min(demH - 1, Math.round(rB)));
-      if (rawClasses[pixRB * demW + pixCB] === 4) {
-        const rndB = pHash(cB, rB, 43);
-        cerradoShrubItems.push(createContinuousItem(cB, rB, demW, demH, geoW, geoH, 1.15, rndB));
-      }
-    }
-  }
-
-  // 3. Afloramento Rochoso e Campo Rupestre (ID 29)
-  const rkStep = 4.5 / dSqrt;
-  for (let r = 0; r < demH; r += rkStep) {
-    for (let c = 0; c < demW; c += rkStep) {
-      const cA = c + pHash(c, r, 81) * rkStep;
-      const rA = r + pHash(c, r, 82) * rkStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 29) {
-        const rndA = pHash(cA, rA, 83);
-        const tiltX = (pHash(cA, rA, 84) - 0.5) * 0.35;
-        const tiltZ = (pHash(cA, rA, 85) - 0.5) * 0.35;
-        rocksItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.30, rndA, undefined, tiltX, tiltZ));
-      }
-    }
-  }
-
-  // 4. Pastagem / Capim Braquiária 3D Sólido (ID 15 & Mosaico 21)
-  const pStep = 6.0 / dSqrt;
-  for (let r = 0; r < demH; r += pStep) {
-    for (let c = 0; c < demW; c += pStep) {
-      const cA = c + pHash(c, r, 101) * pStep;
-      const rA = r + pHash(c, r, 102) * pStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      const clsA = rawClasses[pixRA * demW + pixCA];
-      if (clsA === 15 || clsA === 21) {
-        pastureItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.45, pHash(cA, rA, 103)));
-      }
-    }
-  }
-
-  // 5. Silvicultura / Floresta Plantada de Eucalipto (ID 9) - ADENSADA EM FILEIRAS GEOMÉTRICAS REAIS
-  const silvBlockSize = 16;
-  const silvBCols = Math.ceil(demW / silvBlockSize);
-  const silvBRows = Math.ceil(demH / silvBlockSize);
-  const silvMaxR = silvBlockSize * 0.85;
-  const silvRowSpacing = 1.30 / dSqrt;    // Fileiras espaçadas com clareza geométrica
-  const silvAlongSpacing = 1.00 / dSqrt; // Espaçamento na linha ampliado (densidade reduzida pela metade)
-  const silvNRows = Math.ceil(silvMaxR / silvRowSpacing);
-  const silvNPts = Math.ceil(silvMaxR / silvAlongSpacing);
-
-  for (let by = 0; by < silvBRows; by++) {
-    for (let bx = 0; bx < silvBCols; bx++) {
-      const c0 = bx * silvBlockSize;
-      const r0 = by * silvBlockSize;
-      let hasSilv = false;
-      for (let dr = 0; dr < silvBlockSize; dr += 2) {
-        for (let dc = 0; dc < silvBlockSize; dc += 2) {
-          const pr = Math.min(demH - 1, r0 + dr);
-          const pc = Math.min(demW - 1, c0 + dc);
-          if (rawClasses[pr * demW + pc] === 9) { hasSilv = true; break; }
-        }
-        if (hasSilv) break;
-      }
-      if (!hasSilv) continue;
-
-      // Orientação do talhão florestal de eucalipto
-      const parcelAngle = ((pHash(bx, by, 120) * 8) | 0) * (Math.PI / 8) + 0.12;
-      const dirX = Math.cos(parcelAngle);
-      const dirY = Math.sin(parcelAngle);
-      const perpX = -Math.sin(parcelAngle);
-      const perpY = Math.cos(parcelAngle);
-      const cx = (bx + 0.5) * silvBlockSize;
-      const cy = (by + 0.5) * silvBlockSize;
-
-      for (let i = -silvNRows; i <= silvNRows; i++) {
-        for (let j = -silvNPts; j <= silvNPts; j++) {
-          const c = cx + i * silvRowSpacing * perpX + j * silvAlongSpacing * dirX;
-          const r = cy + i * silvRowSpacing * perpY + j * silvAlongSpacing * dirY;
-          if (c >= c0 && c < c0 + silvBlockSize && r >= r0 && r < r0 + silvBlockSize) {
-            const pc = Math.round(c);
-            const pr = Math.round(r);
-            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 9) {
-              const rnd = pHash(c, r, 125);
-              const treeRot = -parcelAngle + (rnd - 0.5) * 0.15;
-              silvicultureItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.15 + (rnd - 0.5) * 0.20, rnd, treeRot));
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 6. Campo Nativo / Formação Campestre (ID 12)
-  const gStep = 5.5 / dSqrt;
-  for (let r = 0; r < demH; r += gStep) {
-    for (let c = 0; c < demW; c += gStep) {
-      const cA = c + pHash(c, r, 141) * gStep;
-      const rA = r + pHash(c, r, 142) * gStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 12) {
-        grasslandItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.30, pHash(cA, rA, 143)));
-      }
-    }
-  }
-
-  // Função auxiliar para analisar densidade local da malha urbana (1 a 9 pixels vizinhos)
-  function getUrbanDensity(c, r) {
-    let count = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      const ny = r + dy;
-      if (ny < 0 || ny >= demH) continue;
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = c + dx;
-        if (nx < 0 || nx >= demW) continue;
-        if (rawClasses[ny * demW + nx] === 24) count++;
-      }
-    }
-    return count;
-  }
-
-  // 7. Área Urbana (ID 24) - Taguatinga, Ceilândia, Samambaia, Águas Claras, Gama, Guará, Planaltina, etc.
-  const uStep = 5.2 / dSqrt;
-  for (let r = 0; r < demH; r += uStep) {
-    for (let c = 0; c < demW; c += uStep) {
-      const pixC = Math.max(0, Math.min(demW - 1, Math.round(c)));
-      const pixR = Math.max(0, Math.min(demH - 1, Math.round(r)));
-      if (rawClasses[pixR * demW + pixC] === 24) {
-        // Ignora a área central do Plano Piloto (que terá layout procedural exclusivo)
-        if (pixC >= 1610 && pixC <= 1655 && pixR >= 1200 && pixR <= 1272) continue;
-
-        const density = getUrbanDensity(pixC, pixR);
-        const rnd1 = pHash(c, r, 701);
-        const streetAngles = [0, Math.PI / 2, Math.PI / 4, 3 * Math.PI / 4];
-        const baseAng = streetAngles[Math.floor(rnd1 * 4)] + (pHash(c, r, 702) - 0.5) * 0.12;
-
-        const cA = c + (pHash(c, r, 703) - 0.5) * 0.6;
-        const rA = r + (pHash(c, r, 704) - 0.5) * 0.6;
-
-        if (density >= 6 && rnd1 > 0.97) {
-          urbanChurches.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.25, rnd1, baseAng, 0, 0, 0.001));
-        } else if (density >= 5 && rnd1 > 0.55) {
-          if (rnd1 > 0.80) {
-            urbanSobradosOchre.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.15, rnd1, baseAng, 0, 0, 0.001));
-          } else {
-            urbanSobrados.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.15, rnd1, baseAng, 0, 0, 0.001));
-          }
-        } else {
-          const palRnd = pHash(cA, rA, 705);
-          if (palRnd < 0.42) {
-            urbanHousesWhite.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
-          } else if (palRnd < 0.68) {
-            urbanHousesOchre.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
-          } else if (palRnd < 0.86) {
-            urbanHousesGreen.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
-          } else {
-            urbanHousesRose.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
-          }
-        }
-
-        // Lampião e iluminação pública
-        if (pHash(c, r, 706) > 0.70) {
-          const lC = cA + 0.45 * Math.cos(baseAng + Math.PI / 2);
-          const lR = rA + 0.45 * Math.sin(baseAng + Math.PI / 2);
-          urbanLanterns.push(createContinuousItem(lC, lR, demW, demH, geoW, geoH, 1.10, rnd1, baseAng, 0, 0, 0.001));
-        }
-
-        // Arborização Urbana (Ipês do DF e árvores de sombra)
-        if (pHash(c, r, 707) > 0.50) {
-          const tC = cA - 0.55 * Math.cos(baseAng);
-          const tR = rA - 0.55 * Math.sin(baseAng);
-          const treeRnd = pHash(tC, tR, 708);
-          const item = createContinuousItem(tC, tR, demW, demH, geoW, geoH, 1.25, treeRnd, undefined, 0, 0, 0.001);
-
-          if (treeRnd < 0.50) {
-            urbanTreesGreen.push(item);
-          } else if (treeRnd < 0.75) {
-            urbanTreesDeepGreen.push(item);
-          } else if (treeRnd < 0.90) {
-            urbanTreesYellow.push(item);
-          } else {
-            urbanTreesPink.push(item);
-          }
-        }
-      }
-    }
-  }
-
-  // 7.1 PLANO PILOTO DE BRASÍLIA - ARQUITETURA MONUMENTAL DE OSCAR NIEMEYER & LÚCIO COSTA
-  // A. Esplanada dos Ministérios (17 blocos de ministérios posicionados com precisão métrica entre a Catedral e o Congresso)
-  const esplanadaRot = 0.1112; // Alinhamento exato ao Eixo Monumental (+6.37 graus)
-  const espStartX = 1601.5;
-  const espEndX = 1628.5;
-  const espStartY = 1232.0;
-  const espEndY = 1235.0;
-
-  // Ala Norte da Esplanada (9 blocos ministeriais - SBN)
-  for (let k = 0; k < 9; k++) {
-    const frac = (k + 0.5) / 9.0;
-    const cNorth = espStartX + frac * (espEndX - espStartX);
-    const rNorth = espStartY + frac * (espEndY - espStartY) - 2.8; // Offset norte da pista
-    urbanMinistries.push(createContinuousItem(cNorth, rNorth, demW, demH, geoW, geoH, 1.35, 0.5, esplanadaRot, 0, 0, 0.002));
-    urbanTreesYellow.push(createContinuousItem(cNorth, rNorth + 0.9, demW, demH, geoW, geoH, 1.30, 0.8, 0, 0, 0, 0.001));
-  }
-
-  // Ala Sul da Esplanada (8 blocos ministeriais - SBS)
-  for (let k = 0; k < 8; k++) {
-    const frac = (k + 0.5) / 8.0;
-    const cSouth = espStartX + frac * (espEndX - espStartX);
-    const rSouth = espStartY + frac * (espEndY - espStartY) + 2.8; // Offset sul da pista
-    urbanMinistries.push(createContinuousItem(cSouth, rSouth, demW, demH, geoW, geoH, 1.35, 0.5, esplanadaRot, 0, 0, 0.002));
-    urbanTreesPink.push(createContinuousItem(cSouth, rSouth - 0.9, demW, demH, geoW, geoH, 1.30, 0.9, 0, 0, 0, 0.001));
-  }
-
-  // B. Congresso Nacional (Torres Gêmeas + Cúpulas da Câmara e Senado na cabeceira da Esplanada)
-  // urbanCongress substituído pelo modelo monumental OSM em buildOSMLandmarks
-
-  // C. Superquadras Residenciais de Brasília (Blocos sobre pilotis com jardins e gramados)
-  // Asa Sul (SQS)
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 3; col++) {
-      const sqC = 1618 + col * 4.2;
-      const sqR = 1243 + row * 4.6;
-      urbanSuperquadras.push(createContinuousItem(sqC, sqR, demW, demH, geoW, geoH, 1.25, 0.4, 0.10, 0, 0, 0.002));
-      urbanTreesGreen.push(createContinuousItem(sqC + 1.2, sqR + 1.0, demW, demH, geoW, geoH, 1.30, 0.5, 0, 0, 0, 0.001));
-      urbanTreesYellow.push(createContinuousItem(sqC - 1.2, sqR - 1.0, demW, demH, geoW, geoH, 1.25, 0.7, 0, 0, 0, 0.001));
-    }
-  }
-  // Asa Norte (SQN)
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 3; col++) {
-      const sqC = 1618 + col * 4.2;
-      const sqR = 1210 + row * 4.6;
-      urbanSuperquadras.push(createContinuousItem(sqC, sqR, demW, demH, geoW, geoH, 1.25, 0.6, -0.10, 0, 0, 0.002));
-      urbanTreesDeepGreen.push(createContinuousItem(sqC + 1.2, sqR + 1.0, demW, demH, geoW, geoH, 1.30, 0.6, 0, 0, 0, 0.001));
-      urbanTreesPink.push(createContinuousItem(sqC - 1.2, sqR - 1.0, demW, demH, geoW, geoH, 1.25, 0.8, 0, 0, 0, 0.001));
-    }
-  }
-
-  // 8. Soja (ID 39 - Formação Agrícola) - Linhas Mecanizadas de Semeadura
-  const soyBlockSize = 20;
-  const soyBCols = Math.ceil(demW / soyBlockSize);
-  const soyBRows = Math.ceil(demH / soyBlockSize);
-  const soyMaxR = soyBlockSize * 0.85;
-  const soyRowSpacing = 2.8 / dSqrt;
-  const soyAlongSpacing = 1.6 / dSqrt;
-  const soyNRows = Math.ceil(soyMaxR / soyRowSpacing);
-  const soyNPts = Math.ceil(soyMaxR / soyAlongSpacing);
-
-  for (let by = 0; by < soyBRows; by++) {
-    for (let bx = 0; bx < soyBCols; bx++) {
-      const c0 = bx * soyBlockSize;
-      const r0 = by * soyBlockSize;
-      let hasSoy = false;
-      for (let dr = 0; dr < soyBlockSize; dr += 4) {
-        for (let dc = 0; dc < soyBlockSize; dc += 4) {
-          const pr = Math.min(demH - 1, r0 + dr);
-          const pc = Math.min(demW - 1, c0 + dc);
-          if (rawClasses[pr * demW + pc] === 39) { hasSoy = true; break; }
-        }
-        if (hasSoy) break;
-      }
-      if (!hasSoy) continue;
-
-      const parcelAngle = ((pHash(bx, by, 180) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, 181) - 0.5) * 0.05;
-      const dirX = Math.cos(parcelAngle);
-      const dirY = Math.sin(parcelAngle);
-      const perpX = -Math.sin(parcelAngle);
-      const perpY = Math.cos(parcelAngle);
-      const cx = (bx + 0.5) * soyBlockSize;
-      const cy = (by + 0.5) * soyBlockSize;
-
-      for (let i = -soyNRows; i <= soyNRows; i++) {
-        for (let j = -soyNPts; j <= soyNPts; j++) {
-          const c = cx + i * soyRowSpacing * perpX + j * soyAlongSpacing * dirX;
-          const r = cy + i * soyRowSpacing * perpY + j * soyAlongSpacing * dirY;
-          if (c >= c0 && c < c0 + soyBlockSize && r >= r0 && r < r0 + soyBlockSize) {
-            const pc = Math.round(c);
-            const pr = Math.round(r);
-            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 39) {
-              const rnd = pHash(c, r, 185);
-              soybeanItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.40, rnd, -parcelAngle));
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 9. Outras Lavouras Temporárias / Milho e Grãos (ID 41)
-  const tempBlockSize = 20;
-  const tempBCols = Math.ceil(demW / tempBlockSize);
-  const tempBRows = Math.ceil(demH / tempBlockSize);
-  const tempMaxR = tempBlockSize * 0.85;
-  const tempRowSpacing = 3.0 / dSqrt;
-  const tempAlongSpacing = 1.8 / dSqrt;
-  const tempNRows = Math.ceil(tempMaxR / tempRowSpacing);
-  const tempNPts = Math.ceil(tempMaxR / tempAlongSpacing);
-
-  for (let by = 0; by < tempBRows; by++) {
-    for (let bx = 0; bx < tempBCols; bx++) {
-      const c0 = bx * tempBlockSize;
-      const r0 = by * tempBlockSize;
-      let hasTemp = false;
-      for (let dr = 0; dr < tempBlockSize; dr += 4) {
-        for (let dc = 0; dc < tempBlockSize; dc += 4) {
-          const pr = Math.min(demH - 1, r0 + dr);
-          const pc = Math.min(demW - 1, c0 + dc);
-          if (rawClasses[pr * demW + pc] === 41) { hasTemp = true; break; }
-        }
-        if (hasTemp) break;
-      }
-      if (!hasTemp) continue;
-
-      const parcelAngle = ((pHash(bx, by, 210) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, 211) - 0.5) * 0.05;
-      const dirX = Math.cos(parcelAngle);
-      const dirY = Math.sin(parcelAngle);
-      const perpX = -Math.sin(parcelAngle);
-      const perpY = Math.cos(parcelAngle);
-      const cx = (bx + 0.5) * tempBlockSize;
-      const cy = (by + 0.5) * tempBlockSize;
-
-      for (let i = -tempNRows; i <= tempNRows; i++) {
-        for (let j = -tempNPts; j <= tempNPts; j++) {
-          const c = cx + i * tempRowSpacing * perpX + j * tempAlongSpacing * dirX;
-          const r = cy + i * tempRowSpacing * perpY + j * tempAlongSpacing * dirY;
-          if (c >= c0 && c < c0 + tempBlockSize && r >= r0 && r < r0 + tempBlockSize) {
-            const pc = Math.round(c);
-            const pr = Math.round(r);
-            if (pc >= 0 && pc < demW && pr >= 0 && pr < demH && rawClasses[pr * demW + pc] === 41) {
-              const rnd = pHash(c, r, 215);
-              tempCropsItems.push(createContinuousItem(c, r, demW, demH, geoW, geoH, 1.35, rnd, -parcelAngle));
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 10. Campo Alagado e Veredas de Buriti (ID 11)
-  const wStep = 4.5 / dSqrt;
-  for (let r = 0; r < demH; r += wStep) {
-    for (let c = 0; c < demW; c += wStep) {
-      const cA = c + pHash(c, r, 251) * wStep;
-      const rA = r + pHash(c, r, 252) * wStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 11) {
-        const rndA = pHash(cA, rA, 253);
-        const tiltX = (pHash(cA, rA, 254) - 0.5) * 0.10;
-        const tiltZ = (pHash(cA, rA, 255) - 0.5) * 0.10;
-        wetlandItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.25 + rndA * 0.35, rndA, undefined, tiltX, tiltZ));
-      }
-    }
-  }
-
-  // 11. Solo Exposto & Cascalheiras (ID 25)
-  const bStep = 5.0 / dSqrt;
-  for (let r = 0; r < demH; r += bStep) {
-    for (let c = 0; c < demW; c += bStep) {
-      const cA = c + pHash(c, r, 271) * bStep;
-      const rA = r + pHash(c, r, 272) * bStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 25) {
-        bareItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 1.35, pHash(cA, rA, 273)));
-      }
-    }
-  }
-
-  // 12. Corpos Hídricos / Rios e Lago Paranoá (ID 33) - REDUZIDO DRASTICAMENTE CONFORME SOLICITADO
-  // Zero props na lâmina d'água aberta. Apenas discretos seixos de margem na linha de transição de terra/água
-  const hStep = 20.0 / dSqrt;
-  for (let r = 0; r < demH; r += hStep) {
-    for (let c = 0; c < demW; c += hStep) {
-      const cA = c + pHash(c, r, 291) * hStep;
-      const rA = r + pHash(c, r, 292) * hStep;
-      const pixCA = Math.max(0, Math.min(demW - 1, Math.round(cA)));
-      const pixRA = Math.max(0, Math.min(demH - 1, Math.round(rA)));
-      if (rawClasses[pixRA * demW + pixCA] === 33) {
-        // Checagem estrita de borda/margem (shoreline)
-        let isShoreline = false;
-        for (let dy = -1; dy <= 1; dy++) {
-          const ny = pixRA + dy;
-          if (ny < 0 || ny >= demH) continue;
-          for (let dx = -1; dx <= 1; dx++) {
-            const nx = pixCA + dx;
-            if (nx < 0 || nx >= demW) continue;
-            if (rawClasses[ny * demW + nx] !== 33) {
-              isShoreline = true;
-              break;
-            }
-          }
-          if (isShoreline) break;
-        }
-        // Apenas se for margem e probabilidade baixa (máximo 15-20 pedras na orla de todo o DF)
-        if (isShoreline && pHash(cA, rA, 294) < 0.20) {
-          waterItems.push(createContinuousItem(cA, rA, demW, demH, geoW, geoH, 0.80, pHash(cA, rA, 293)));
-        }
-      }
-    }
-  }
-
-  // 13. Rebanhos Bovinos (Nelore, Malhado P&B, Girolando Castanho) e Cavalos nas Pastagens (ID 15 & 21)
-  for (let r = 0; r < demH; r += 12) {
-    for (let c = 0; c < demW; c += 12) {
-      const centerC = c + pHash(c, r, 501) * 12;
-      const centerR = r + pHash(c, r, 502) * 12;
-      const pixC = Math.max(0, Math.min(demW - 1, Math.round(centerC)));
-      const pixR = Math.max(0, Math.min(demH - 1, Math.round(centerR)));
-      const cls = rawClasses[pixR * demW + pixC];
-      if (cls === 15 || cls === 21) {
-        if (pHash(c, r, 503) > 0.55) {
-          const herdSize = 3 + Math.floor(pHash(c, r, 504) * 4); // 3 a 6 por rebanho
-          for (let k = 0; k < herdSize; k++) {
-            const herdAngle = pHash(c, r, k * 7 + 510) * Math.PI * 2;
-            const herdDist = 0.8 + Math.sqrt(pHash(c, r, k * 7 + 511)) * 3.8;
-            const cowC = centerC + Math.cos(herdAngle) * herdDist;
-            const cowR = centerR + Math.sin(herdAngle) * herdDist;
-            const cowPixC = Math.max(0, Math.min(demW - 1, Math.round(cowC)));
-            const cowPixR = Math.max(0, Math.min(demH - 1, Math.round(cowR)));
-            const cowCls = rawClasses[cowPixR * demW + cowPixC];
-            if (cowCls === 15 || cowCls === 21) {
-              const cowRnd = pHash(cowC, cowR, k * 7 + 512);
-              const cowRot = pHash(cowC, cowR, k * 7 + 513) * Math.PI * 2;
-              const cowScale = 1.15 + (cowRnd - 0.5) * 0.20;
-              const item = createContinuousItem(cowC, cowR, demW, demH, geoW, geoH, cowScale, cowRnd, cowRot, 0, 0, 0.001);
-
-              if (cowRnd < 0.78) {
-                cattleNeloreItems.push(item);
-              } else if (cowRnd < 0.90) {
-                cattleSpottedItems.push(item);
-              } else {
-                cattleBrownItems.push(item);
-              }
-            }
-          }
-
-          // Cavalo pastando no piquete (~15% dos rebanhos)
-          if (pHash(c, r, 540) > 0.82) {
-            const horseAngle = pHash(c, r, 541) * Math.PI * 2;
-            const horseDist = 2.0 + pHash(c, r, 542) * 2.5;
-            const horseC = centerC + Math.cos(horseAngle) * horseDist;
-            const horseR = centerR + Math.sin(horseAngle) * horseDist;
-            const horsePixC = Math.max(0, Math.min(demW - 1, Math.round(horseC)));
-            const horsePixR = Math.max(0, Math.min(demH - 1, Math.round(horseR)));
-            if (rawClasses[horsePixR * demW + horsePixC] === 15 || rawClasses[horsePixR * demW + horsePixC] === 21) {
-              const horseRnd = pHash(horseC, horseR, 543);
-              const horseRot = pHash(horseC, horseR, 544) * Math.PI * 2;
-              horseItems.push(createContinuousItem(horseC, horseR, demW, demH, geoW, geoH, 1.20, horseRnd, horseRot, 0, 0, 0.001));
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // REBANHO GARANTIDO NO PRESET "Rebanho no Pasto 🐄" (Brazlândia - col: 427, row: 811)
-  const presetCows = [
-    { dc: 0, dr: 0, rot: 0.6, type: 'nelore', scale: 1.30 },
-    { dc: -0.8, dr: 0.6, rot: 1.2, type: 'nelore', scale: 1.25 },
-    { dc: 0.7, dr: -0.6, rot: 2.1, type: 'nelore', scale: 1.28 },
-    { dc: -1.3, dr: -0.4, rot: 0.2, type: 'spotted', scale: 1.25 },
-    { dc: 1.2, dr: 0.8, rot: 3.4, type: 'brown', scale: 1.22 },
-    { dc: -0.5, dr: -1.4, rot: 4.2, type: 'nelore', scale: 1.26 },
-    { dc: 1.6, dr: -1.2, rot: 1.9, type: 'spotted', scale: 1.24 },
-    { dc: -1.8, dr: 1.2, rot: 5.1, type: 'horse', scale: 1.28 },
-    { dc: -2.4, dr: 0.3, rot: 4.8, type: 'horse', scale: 1.26 }
+  // 1. Definições de Todas as Camadas de Objetos 3D
+  const layerDefs = [
+    { key: 'forest', category: 'forest', type: 'botanical', geo: createTropicalTree3DGeo(), mat: botanicalMat, impostorGeo: impostorGeos.forest, impostorMat: impostorMats.forest, items: forestItems },
+    { key: 'cerrado_trees', category: 'cerrado', type: 'botanical', geo: createCerradoTree3DGeo(), mat: botanicalMat, impostorGeo: impostorGeos.cerrado_tree, impostorMat: impostorMats.cerrado_tree, items: cerradoTreeItems },
+    { key: 'cerrado_shrubs', category: 'cerrado', type: 'botanical', geo: createCerradoShrub3DGeo(), mat: botanicalMat, impostorGeo: impostorGeos.cerrado_shrub, impostorMat: impostorMats.cerrado_shrub, items: cerradoShrubItems },
+    { key: 'rocks', category: 'rocks', type: 'rock', geo: createQuartziteRock3DGeo(), mat: rockMat, impostorGeo: impostorGeos.rocks, impostorMat: impostorMats.rocks, items: rocksItems },
+    { key: 'pasture', category: 'pasture', type: 'micro', geo: create3DPastureTuftGeo(), mat: pastureMat, items: pastureItems },
+    { key: 'silviculture', category: 'silviculture', type: 'botanical', geo: createEucalyptus3DGeo(), mat: botanicalMat, impostorGeo: impostorGeos.silviculture, impostorMat: impostorMats.silviculture, items: silvicultureItems },
+    { key: 'grassland', category: 'grassland', type: 'micro', geo: createGrasslandNative3DGeo(), mat: pastureMat, items: grasslandItems },
+    { key: 'urban_superquadras', category: 'urban', type: 'landmark', geo: createBrasiliaSuperquadraGeo(0), mat: urbanMat, items: urbanSuperquadras },
+    { key: 'urban_ministries', category: 'urban', type: 'landmark', geo: createBrasiliaMinistryGeo(), mat: urbanMat, items: urbanMinistries },
+    { key: 'urban_congress', category: 'urban', type: 'landmark', geo: createBrasiliaCongressGeo(), mat: urbanMat, items: urbanCongress },
+    { key: 'urban_houses_white', category: 'urban', type: 'landmark', geo: createDetailedColonialHouseGeo(0), mat: urbanMat, items: urbanHousesWhite },
+    { key: 'urban_houses_ochre', category: 'urban', type: 'landmark', geo: createDetailedColonialHouseGeo(1), mat: urbanMat, items: urbanHousesOchre },
+    { key: 'urban_houses_green', category: 'urban', type: 'landmark', geo: createDetailedColonialHouseGeo(2), mat: urbanMat, items: urbanHousesGreen },
+    { key: 'urban_houses_rose',  category: 'urban', type: 'landmark', geo: createDetailedColonialHouseGeo(3), mat: urbanMat, items: urbanHousesRose },
+    { key: 'urban_sobrados',      category: 'urban', type: 'landmark', geo: createDetailedColonialSobradoGeo(0), mat: urbanMat, items: urbanSobrados },
+    { key: 'urban_sobrados_ochre',category: 'urban', type: 'landmark', geo: createDetailedColonialSobradoGeo(1), mat: urbanMat, items: urbanSobradosOchre },
+    { key: 'urban_churches',      category: 'urban', type: 'landmark', geo: createDetailedColonialChurchGeo(), mat: urbanMat, items: urbanChurches },
+    { key: 'urban_lanterns',      category: 'urban', type: 'landmark', geo: createColonialLanternGeo(), mat: urbanMat, items: urbanLanterns },
+    { key: 'urban_trees_green',      category: 'urban', type: 'landmark', geo: createColonialYardTreeGeo('green'),      mat: botanicalMat, items: urbanTreesGreen },
+    { key: 'urban_trees_deep_green', category: 'urban', type: 'landmark', geo: createColonialYardTreeGeo('deep_green'), mat: botanicalMat, items: urbanTreesDeepGreen },
+    { key: 'urban_trees_yellow',     category: 'urban', type: 'landmark', geo: createColonialYardTreeGeo('yellow'),     mat: botanicalMat, items: urbanTreesYellow },
+    { key: 'urban_trees_pink',       category: 'urban', type: 'landmark', geo: createColonialYardTreeGeo('pink'),       mat: botanicalMat, items: urbanTreesPink },
+    { key: 'soybean', category: 'soybean', type: 'botanical', geo: createSoybeanCrop3DGeo(), mat: botanicalMat, items: soybeanItems },
+    { key: 'tempcrops', category: 'tempcrops', type: 'botanical', geo: createTemporaryCrop3DGeo(), mat: botanicalMat, items: tempCropsItems },
+    { key: 'wetland', category: 'wetland', type: 'landmark', geo: createBuritiPalm3DGeo(), mat: botanicalMat, items: wetlandItems },
+    { key: 'bare', category: 'bare', type: 'rock', geo: createBareGround3DGeo(), mat: rockMat, items: bareItems },
+    { key: 'water', category: 'water', type: 'rock', geo: createRiverBank3DGeo(), mat: rockMat, items: waterItems },
+    { key: 'cattle_nelore', category: 'cattle', type: 'landmark', geo: createNeloreCowGeo('nelore'), mat: rockMat, items: cattleNeloreItems },
+    { key: 'cattle_spotted', category: 'cattle', type: 'landmark', geo: createNeloreCowGeo('spotted'), mat: rockMat, items: cattleSpottedItems },
+    { key: 'cattle_brown', category: 'cattle', type: 'landmark', geo: createNeloreCowGeo('brown'), mat: rockMat, items: cattleBrownItems },
+    { key: 'horses', category: 'cattle', type: 'landmark', geo: createHorseGeo(), mat: rockMat, items: horseItems },
+    { key: 'tractors_green', category: 'machinery', type: 'landmark', geo: createTractorGeo(true), mat: urbanMat, items: tractorsGreenItems },
+    { key: 'tractors_red', category: 'machinery', type: 'landmark', geo: createTractorGeo(false), mat: urbanMat, items: tractorsRedItems },
+    { key: 'harvesters', category: 'machinery', type: 'landmark', geo: createHarvesterGeo(), mat: urbanMat, items: harvesterItems }
   ];
-  for (const pc of presetCows) {
-    const cCow = 427 + pc.dc;
-    const rCow = 811 + pc.dr;
-    const item = createContinuousItem(cCow, rCow, demW, demH, geoW, geoH, pc.scale, 0.5, pc.rot, 0, 0, 0.001);
-    if (pc.type === 'nelore') cattleNeloreItems.push(item);
-    else if (pc.type === 'spotted') cattleSpottedItems.push(item);
-    else if (pc.type === 'brown') cattleBrownItems.push(item);
-    else if (pc.type === 'horse') horseItems.push(item);
-  }
 
-  // 14. Maquinário Agrícola (Tratores e Colheitadeiras nas lavouras do PAD-DF - ID 39 & 41)
-  for (let r = 0; r < demH; r += 12) {
-    for (let c = 0; c < demW; c += 12) {
-      const machC = c + pHash(c, r, 601) * 12;
-      const machR = r + pHash(c, r, 602) * 12;
-      const pixC = Math.max(0, Math.min(demW - 1, Math.round(machC)));
-      const pixR = Math.max(0, Math.min(demH - 1, Math.round(machR)));
-      const cls = rawClasses[pixR * demW + pixC];
-      if (cls === 39 || cls === 41) {
-        if (pHash(c, r, 603) > 0.45) {
-          const seedAngle = (cls === 39) ? 180 : 210;
-          const bx = Math.floor(machC / 20);
-          const by = Math.floor(machR / 20);
-          const parcelAngle = ((pHash(bx, by, seedAngle) * 8) | 0) * (Math.PI / 8) + (pHash(bx, by, seedAngle + 1) - 0.5) * 0.05;
-          const forward = pHash(c, r, 604) > 0.5;
-          const machRot = forward ? (Math.PI - parcelAngle) : -parcelAngle;
-          const machRnd = pHash(machC, machR, 605);
-          const item = createContinuousItem(machC, machR, demW, demH, geoW, geoH, 1.35, machRnd, machRot, 0, 0, 0.002);
+  // 2. Inicialização dos 32 Chunks Espaciais (Grade 8x4)
+  const CHUNK_COLS = 8;
+  const CHUNK_ROWS = 4;
+  state.lodChunks = [];
+  const chunkItemBuckets = [];
 
-          if (machRnd < 0.40) {
-            tractorsGreenItems.push(item);
-          } else if (machRnd < 0.65) {
-            tractorsRedItems.push(item);
-          } else {
-            harvesterItems.push(item);
-          }
-        }
-      }
+  for (let ry = 0; ry < CHUNK_ROWS; ry++) {
+    for (let cx = 0; cx < CHUNK_COLS; cx++) {
+      const idx = ry * CHUNK_COLS + cx;
+      const x0 = (cx / CHUNK_COLS - 0.5) * geoW;
+      const x1 = ((cx + 1) / CHUNK_COLS - 0.5) * geoW;
+      const z0 = (ry / CHUNK_ROWS - 0.5) * geoH;
+      const z1 = ((ry + 1) / CHUNK_ROWS - 0.5) * geoH;
+
+      const chunkGroup = new THREE.Group();
+      const solidGroup = new THREE.Group();
+      const impostorGroup = new THREE.Group();
+      const microGroup = new THREE.Group();
+      const landmarkGroup = new THREE.Group();
+
+      chunkGroup.add(solidGroup);
+      chunkGroup.add(impostorGroup);
+      chunkGroup.add(microGroup);
+      chunkGroup.add(landmarkGroup);
+
+      impostorGroup.visible = false; // Começa com LOD0 ativo próximo à câmera
+
+      propsGroup.add(chunkGroup);
+
+      state.lodChunks.push({
+        id: `chunk_${cx}_${ry}`,
+        index: idx,
+        col: cx,
+        row: ry,
+        box: new THREE.Box3(
+          new THREE.Vector3(x0, -1, z0),
+          new THREE.Vector3(x1, state.baseHeight * state.exaggeration + 1.5, z1)
+        ),
+        center: new THREE.Vector3((x0 + x1) / 2, (state.baseHeight * state.exaggeration) / 2, (z0 + z1) / 2),
+        group: chunkGroup,
+        solidGroup,
+        impostorGroup,
+        microGroup,
+        landmarkGroup,
+        layers: {},
+        solidCount: 0,
+        impostorCount: 0,
+        microCount: 0,
+        landmarkCount: 0
+      });
+
+      chunkItemBuckets.push({});
     }
   }
 
-  // MAQUINÁRIO GARANTIDO NO PRESET "Colheitadeiras & Tratores 🚜" (Lavouras de Soja do PAD-DF - col: 3119, row: 1697)
-  const soyHeroBx = Math.floor(3119 / 20);
-  const soyHeroBy = Math.floor(1697 / 20);
-  const soyHeroParcelAng = ((pHash(soyHeroBx, soyHeroBy, 180) * 8) | 0) * (Math.PI / 8) + (pHash(soyHeroBx, soyHeroBy, 181) - 0.5) * 0.05;
-  const machSoyRot = Math.PI - soyHeroParcelAng;
-  const perpSoyX = -Math.sin(soyHeroParcelAng);
-  const perpSoyY = Math.cos(soyHeroParcelAng);
-  const dirSoyX = Math.cos(soyHeroParcelAng);
-  const dirSoyY = Math.sin(soyHeroParcelAng);
-
-  // Colheitadeira Draper trabalhando na linha de soja
-  const itemHarvester1 = createContinuousItem(3119, 1697, demW, demH, geoW, geoH, 1.50, 0.5, machSoyRot, 0, 0, 0.002);
-  harvesterItems.push(itemHarvester1);
-
-  // Trator John Deere (Verde) com carretel graneleiro acompanhando na linha paralela adjacente
-  const itemTractorSide = createContinuousItem(3119 + perpSoyX * 2.8, 1697 + perpSoyY * 2.8, demW, demH, geoW, geoH, 1.45, 0.5, machSoyRot, 0, 0, 0.002);
-  tractorsGreenItems.push(itemTractorSide);
-
-  // Trator Case IH (Vermelho) trabalhando com grade aradora mais à frente na linha de plantio
-  const itemTractorAhead = createContinuousItem(3119 + dirSoyX * 8.0, 1697 + dirSoyY * 8.0, demW, demH, geoW, geoH, 1.45, 0.5, machSoyRot, 0, 0, 0.002);
-  tractorsRedItems.push(itemTractorAhead);
-
-  // Materiais PBR Sólidos com Vertex Colors para Vegetação e Elementos 3D
-  const botanicalMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.78,
-    metalness: 0.04,
-    flatShading: true
-  });
-
-  const rockMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.88,
-    metalness: 0.08,
-    flatShading: true
-  });
-
-  const pastureMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.82,
-    metalness: 0.03,
-    flatShading: true
-  });
-
-  const urbanMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.80,
-    metalness: 0.08,
-    flatShading: true
-  });
-
-  // 1. Mata Tropical (Dossel 3D volumétrico multi-camadas)
-  setupInstancedSolidLayer('forest', 'forest', createTropicalTree3DGeo(), botanicalMat, forestItems);
-
-  // 2. Cerrado - Árvores tortuosas (Tronco retorcido + copa aberta)
-  setupInstancedSolidLayer('cerrado_trees', 'cerrado', createCerradoTree3DGeo(), botanicalMat, cerradoTreeItems);
-
-  // 2. Cerrado - Arbustos densos (Moitas 3D volumétricas)
-  setupInstancedSolidLayer('cerrado_shrubs', 'cerrado', createCerradoShrub3DGeo(), botanicalMat, cerradoShrubItems);
-
-  // 3. Rochas de Quartzito & Campo Rupestre (Blocos geológicos facetados + Vellozia)
-  setupInstancedSolidLayer('rocks', 'rocks', createQuartziteRock3DGeo(), rockMat, rocksItems);
-
-  // 4. Pastagem / Capim Braquiária (Campo denso volumétrico de pasto)
-  setupInstancedSolidLayer('pasture', 'pasture', create3DPastureTuftGeo(), pastureMat, pastureItems);
-
-  // 5. Silvicultura / Eucalipto (Árvores esguias em linhas)
-  setupInstancedSolidLayer('silviculture', 'silviculture', createEucalyptus3DGeo(), botanicalMat, silvicultureItems);
-
-  // 6. Campo Nativo (Gramíneas nativas com plumas campestres 3D)
-  setupInstancedSolidLayer('grassland', 'grassland', createGrasslandNative3DGeo(), pastureMat, grasslandItems);
-
-  // 7. Estruturas Arquitetônicas de Brasília e DF
-  setupInstancedSolidLayer('urban_superquadras',  'urban', createBrasiliaSuperquadraGeo(0), urbanMat, urbanSuperquadras);
-  setupInstancedSolidLayer('urban_ministries',    'urban', createBrasiliaMinistryGeo(),     urbanMat, urbanMinistries);
-  if (propLayers['urban_ministries'] && state.landmarks && state.landmarks.enabled === false) {
-    propLayers['urban_ministries'].visible = false;
+  // 3. Distribuição Espacial dos Elementos nos Chunks
+  function getChunkIndex(x, z) {
+    const u = (x / geoW) + 0.5;
+    const v = (z / geoH) + 0.5;
+    const cx = Math.max(0, Math.min(CHUNK_COLS - 1, Math.floor(u * CHUNK_COLS)));
+    const cy = Math.max(0, Math.min(CHUNK_ROWS - 1, Math.floor(v * CHUNK_ROWS)));
+    return cy * CHUNK_COLS + cx;
   }
-  setupInstancedSolidLayer('urban_congress',      'urban', createBrasiliaCongressGeo(),     urbanMat, urbanCongress);
-  setupInstancedSolidLayer('urban_houses_white', 'urban', createDetailedColonialHouseGeo(0), urbanMat, urbanHousesWhite);
-  setupInstancedSolidLayer('urban_houses_ochre', 'urban', createDetailedColonialHouseGeo(1), urbanMat, urbanHousesOchre);
-  setupInstancedSolidLayer('urban_houses_green', 'urban', createDetailedColonialHouseGeo(2), urbanMat, urbanHousesGreen);
-  setupInstancedSolidLayer('urban_houses_rose',  'urban', createDetailedColonialHouseGeo(3), urbanMat, urbanHousesRose);
-  setupInstancedSolidLayer('urban_sobrados',      'urban', createDetailedColonialSobradoGeo(0), urbanMat, urbanSobrados);
-  setupInstancedSolidLayer('urban_sobrados_ochre','urban', createDetailedColonialSobradoGeo(1), urbanMat, urbanSobradosOchre);
-  setupInstancedSolidLayer('urban_churches',      'urban', createDetailedColonialChurchGeo(), urbanMat, urbanChurches);
-  setupInstancedSolidLayer('urban_lanterns',          'urban', createColonialLanternGeo(), urbanMat, urbanLanterns);
-  setupInstancedSolidLayer('urban_trees_green',      'urban', createColonialYardTreeGeo('green'),      botanicalMat, urbanTreesGreen);
-  setupInstancedSolidLayer('urban_trees_deep_green', 'urban', createColonialYardTreeGeo('deep_green'), botanicalMat, urbanTreesDeepGreen);
-  setupInstancedSolidLayer('urban_trees_yellow',     'urban', createColonialYardTreeGeo('yellow'),     botanicalMat, urbanTreesYellow);
-  setupInstancedSolidLayer('urban_trees_pink',       'urban', createColonialYardTreeGeo('pink'),       botanicalMat, urbanTreesPink);
 
-  // 8. Soja (3.2.1.1)
-  setupInstancedSolidLayer('soybean', 'soybean', createSoybeanCrop3DGeo(), botanicalMat, soybeanItems);
+  for (const def of layerDefs) {
+    propLayers[def.key] = { category: def.category, items: def.items };
+    for (let i = 0; i < def.items.length; i++) {
+      const it = def.items[i];
+      const chIdx = getChunkIndex(it.x, it.z);
+      if (!chunkItemBuckets[chIdx][def.key]) {
+        chunkItemBuckets[chIdx][def.key] = [];
+      }
+      chunkItemBuckets[chIdx][def.key].push(it);
+    }
+  }
 
-  // 9. Outras Lavouras Temporárias (3.2.1.5)
-  setupInstancedSolidLayer('tempcrops', 'tempcrops', createTemporaryCrop3DGeo(), botanicalMat, tempCropsItems);
+  // 4. Instanciação Otimizada por Chunk com Suporte a LOD0 (3D Sólido) e LOD1 (Impostor)
+  const dummy = new THREE.Object3D();
+  const s = state.props.scale;
 
-  // 10. Campo Alagado e Veredas de Buriti (2.3)
-  setupInstancedSolidLayer('wetland', 'wetland', createBuritiPalm3DGeo(), botanicalMat, wetlandItems);
+  for (let chIdx = 0; chIdx < state.lodChunks.length; chIdx++) {
+    const chunk = state.lodChunks[chIdx];
+    const buckets = chunkItemBuckets[chIdx];
 
-  // 11. Solo Exposto & Não Vegetado (4.6)
-  setupInstancedSolidLayer('bare', 'bare', createBareGround3DGeo(), rockMat, bareItems);
+    for (const def of layerDefs) {
+      const items = buckets[def.key];
+      if (!items || items.length === 0) continue;
 
-  // 12. Rios e Margens Ripárias (5.1)
-  setupInstancedSolidLayer('water', 'water', createRiverBank3DGeo(), rockMat, waterItems);
+      const layerData = {
+        category: def.category,
+        type: def.type,
+        items: items,
+        solidMesh: null,
+        impostorMesh: null
+      };
 
-  // 13. Rebanho Bovino (Vaquinhas Nelore brancas, malhadas P&B e girolando castanhas)
-  setupInstancedSolidLayer('cattle_nelore',  'cattle', createNeloreCowGeo('nelore'),  rockMat, cattleNeloreItems);
-  setupInstancedSolidLayer('cattle_spotted', 'cattle', createNeloreCowGeo('spotted'), rockMat, cattleSpottedItems);
-  setupInstancedSolidLayer('cattle_brown',   'cattle', createNeloreCowGeo('brown'),   rockMat, cattleBrownItems);
+      // 4.1 Malha Sólida (LOD 0)
+      if (def.geo) {
+        const solidMesh = new THREE.InstancedMesh(def.geo, def.mat, items.length);
+        solidMesh.castShadow = state.props.castShadows;
+        solidMesh.receiveShadow = false;
+        solidMesh.visible = state.props.categories[def.category] && state.props.enabled;
 
-  // 14. Cavalos nas Pastagens
-  setupInstancedSolidLayer('horses', 'cattle', createHorseGeo(), rockMat, horseItems);
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          dummy.position.set(it.x, it.elev * state.baseHeight * state.exaggeration + (it.offsetY || 0), it.z);
+          dummy.rotation.set(it.tiltX || 0, it.rotY, it.tiltZ || 0);
+          dummy.scale.set(it.scaleX * s, it.scaleY * s, it.scaleZ * s);
+          dummy.updateMatrix();
+          solidMesh.setMatrixAt(i, dummy.matrix);
+        }
+        solidMesh.instanceMatrix.needsUpdate = true;
+        layerData.solidMesh = solidMesh;
 
-  // 15. Maquinário Agrícola (Tratores verdes John Deere / vermelhos Case e Colheitadeiras Draper)
-  setupInstancedSolidLayer('tractors_green', 'machinery', createTractorGeo(true),  urbanMat, tractorsGreenItems);
-  setupInstancedSolidLayer('tractors_red',   'machinery', createTractorGeo(false), urbanMat, tractorsRedItems);
-  setupInstancedSolidLayer('harvesters',     'machinery', createHarvesterGeo(),    urbanMat, harvesterItems);
+        if (def.type === 'micro') {
+          chunk.microGroup.add(solidMesh);
+          chunk.microCount += items.length;
+        } else if (def.type === 'landmark') {
+          chunk.landmarkGroup.add(solidMesh);
+          chunk.landmarkCount += items.length;
+        } else {
+          chunk.solidGroup.add(solidMesh);
+          chunk.solidCount += items.length;
+        }
+      }
+
+      // 4.2 Malha Impostor 2.5D (LOD 1 & 2 para árvores e rochas)
+      if (def.impostorGeo && def.impostorMat) {
+        const impostorMesh = new THREE.InstancedMesh(def.impostorGeo, def.impostorMat, items.length);
+        impostorMesh.castShadow = false; // Impostores distantes dispensam mapa de sombras caro
+        impostorMesh.receiveShadow = false;
+        impostorMesh.visible = state.props.categories[def.category] && state.props.enabled;
+
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          dummy.position.set(it.x, it.elev * state.baseHeight * state.exaggeration + (it.offsetY || 0), it.z);
+          dummy.rotation.set(it.tiltX || 0, it.rotY, it.tiltZ || 0);
+          dummy.scale.set(it.scaleX * s, it.scaleY * s, it.scaleZ * s);
+          dummy.updateMatrix();
+          impostorMesh.setMatrixAt(i, dummy.matrix);
+        }
+        impostorMesh.instanceMatrix.needsUpdate = true;
+        layerData.impostorMesh = impostorMesh;
+        chunk.impostorGroup.add(impostorMesh);
+        chunk.impostorCount += items.length;
+      }
+
+      chunk.layers[def.key] = layerData;
+    }
+  }
 
   const totalProps = forestItems.length + cerradoTreeItems.length + cerradoShrubItems.length +
                      rocksItems.length + pastureItems.length + silvicultureItems.length +
@@ -3322,65 +2957,57 @@ function buildPropsMeshes() {
                      cattleNeloreItems.length + cattleSpottedItems.length + cattleBrownItems.length +
                      horseItems.length + tractorsGreenItems.length + tractorsRedItems.length + harvesterItems.length;
 
+  state.totalPropsCount = totalProps;
+
   if (badgePropsCount) {
     badgePropsCount.textContent = totalProps.toLocaleString('pt-BR') + ' objetos 3D';
   }
+
+  updateLODVisibility(true);
 }
 
-function setupInstancedSolidLayer(layerKey, categoryKey, geometry, material, items) {
-  if (!items.length) return;
-  const mesh = new THREE.InstancedMesh(geometry, material, items.length);
-  mesh.castShadow = state.props.castShadows;
-  mesh.receiveShadow = false;
-
-  const dummy = new THREE.Object3D();
-  const s = state.props.scale;
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    dummy.position.set(it.x, it.elev * state.baseHeight * state.exaggeration + (it.offsetY || 0), it.z);
-    dummy.rotation.set(it.tiltX || 0, it.rotY, it.tiltZ || 0);
-    dummy.scale.set(it.scaleX * s, it.scaleY * s, it.scaleZ * s);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-  }
-
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.visible = state.props.categories[categoryKey] && state.props.enabled;
-  propsGroup.add(mesh);
-
-  propLayers[layerKey] = { mesh, items, category: categoryKey };
-}
-
-// 9. Update Props Transforms (Exaggeration & Scale)
+// 9. Atualização de Transformações de Props nos Chunks (Exagero & Escala)
 function updatePropsTransforms() {
-  if (!propsGroup) return;
+  if (!propsGroup || !state.lodChunks) return;
   const dummy = new THREE.Object3D();
   const s = state.props.scale;
 
-  for (const key of Object.keys(propLayers)) {
-    const layer = propLayers[key];
-    const mesh = layer.mesh;
-    const items = layer.items;
+  for (let chIdx = 0; chIdx < state.lodChunks.length; chIdx++) {
+    const chunk = state.lodChunks[chIdx];
+    chunk.box.min.y = -0.5;
+    chunk.box.max.y = state.baseHeight * state.exaggeration + 1.5;
+    chunk.center.y = (state.baseHeight * state.exaggeration) / 2;
 
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      dummy.position.set(it.x, it.elev * state.baseHeight * state.exaggeration + (it.offsetY || 0), it.z);
-      dummy.rotation.set(it.tiltX || 0, it.rotY, it.tiltZ || 0);
-      dummy.scale.set(it.scaleX * s, it.scaleY * s, it.scaleZ * s);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+    for (const key of Object.keys(chunk.layers)) {
+      const layer = chunk.layers[key];
+      const items = layer.items;
+      const solidMesh = layer.solidMesh;
+      const impostorMesh = layer.impostorMesh;
+
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        dummy.position.set(it.x, it.elev * state.baseHeight * state.exaggeration + (it.offsetY || 0), it.z);
+        dummy.rotation.set(it.tiltX || 0, it.rotY, it.tiltZ || 0);
+        dummy.scale.set(it.scaleX * s, it.scaleY * s, it.scaleZ * s);
+        dummy.updateMatrix();
+
+        if (solidMesh) solidMesh.setMatrixAt(i, dummy.matrix);
+        if (impostorMesh) impostorMesh.setMatrixAt(i, dummy.matrix);
+      }
+
+      if (solidMesh) solidMesh.instanceMatrix.needsUpdate = true;
+      if (impostorMesh) impostorMesh.instanceMatrix.needsUpdate = true;
     }
-    mesh.instanceMatrix.needsUpdate = true;
   }
 }
 
-// 10. Update Exaggeration Dynamically (Terrain + Props)
+// 10. Atualização do Exagero Vertical Dinâmico (Relevo + Props + Limites + Marcos)
 function updateExaggeration(val) {
   state.exaggeration = val;
   if (!terrainGeometry || !rawElevations) return;
 
-  const segW = TERRAIN_SEG_W;
-  const segH = TERRAIN_SEG_H;
+  const segW = terrainGeometry.parameters ? terrainGeometry.parameters.widthSegments : 622;
+  const segH = terrainGeometry.parameters ? terrainGeometry.parameters.heightSegments : 382;
   const demW = state.demDimensions.width;
   const demH = state.demDimensions.height;
   const posAttr = terrainGeometry.attributes.position;
@@ -3404,6 +3031,112 @@ function updateExaggeration(val) {
   updateOSMLandmarksElevation();
   updateDFBoundaryElevation();
   updateSkirtElevation();
+  updateLODVisibility(true);
+}
+
+// 10.1 Gerenciador de LOD Inteligente (Frustum Culling + Transição por Distância de Chunks)
+const lodFrustum = new THREE.Frustum();
+const lodProjMatrix = new THREE.Matrix4();
+let lastLODCheckTime = 0;
+
+function updateLODVisibility(force = false) {
+  if (!state.lodChunks || !state.lodChunks.length || !camera) return;
+
+  const now = performance.now();
+  if (!force && now - lastLODCheckTime < 45) return; // Limita a ~22 verificações/segundo para 60 FPS estáveis
+  lastLODCheckTime = now;
+
+  let visibleChunks = 0;
+  let activeProps = 0;
+  const totalProps = state.totalPropsCount || 1;
+
+  if (!state.lod.enabled) {
+    // Modo Bruto (LOD Desativado): Desenha tudo em 3D sólido sem descarte
+    for (let i = 0; i < state.lodChunks.length; i++) {
+      const ch = state.lodChunks[i];
+      ch.group.visible = true;
+      ch.solidGroup.visible = true;
+      ch.impostorGroup.visible = false;
+      ch.microGroup.visible = true;
+      ch.landmarkGroup.visible = true;
+      activeProps += ch.solidCount + ch.microCount + ch.landmarkCount;
+      visibleChunks++;
+    }
+  } else {
+    // LOD Inteligente Ativo: Frustum Culling + Transição Distante
+    lodProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    lodFrustum.setFromProjectionMatrix(lodProjMatrix);
+
+    const camPos = camera.position;
+    const nearSq = state.lod.nearDistance * state.lod.nearDistance;
+    const farSq = state.lod.farDistance * state.lod.farDistance;
+
+    for (let i = 0; i < state.lodChunks.length; i++) {
+      const ch = state.lodChunks[i];
+
+      // 1. Frustum Culling do Chunk
+      if (state.lod.frustumCulling && !lodFrustum.intersectsBox(ch.box)) {
+        ch.group.visible = false;
+        continue;
+      }
+
+      ch.group.visible = true;
+      visibleChunks++;
+
+      // 2. Avaliação de Distância do Chunk à Câmera
+      const distSq = camPos.distanceToSquared(ch.center);
+
+      if (distSq < nearSq) {
+        // LOD 0: Perto (< 35m) -> 3D Sólido completo + micro-props
+        ch.solidGroup.visible = true;
+        ch.impostorGroup.visible = false;
+        ch.microGroup.visible = true;
+        ch.landmarkGroup.visible = true;
+        activeProps += ch.solidCount + ch.microCount + ch.landmarkCount;
+      } else if (distSq < farSq) {
+        // LOD 1: Médio (35 a 70m) -> Impostores 2.5D cross-quads, micro-props ocultos
+        ch.solidGroup.visible = false;
+        ch.impostorGroup.visible = true;
+        ch.microGroup.visible = false;
+        ch.landmarkGroup.visible = true;
+        activeProps += ch.impostorCount + ch.landmarkCount;
+      } else {
+        // LOD 2: Longe (> 70m) -> Apenas impostores essenciais e marcos
+        ch.solidGroup.visible = false;
+        ch.impostorGroup.visible = true;
+        ch.microGroup.visible = false;
+        ch.landmarkGroup.visible = true;
+        activeProps += ch.impostorCount + ch.landmarkCount;
+      }
+    }
+  }
+
+  state.visibleChunksCount = visibleChunks;
+  state.activePropsCount = activeProps;
+
+  // Atualização em tempo real das métricas do HUD
+  if (statLodChunks) statLodChunks.textContent = `${visibleChunks} / ${state.lodChunks.length}`;
+  if (statLodProps) statLodProps.textContent = `${activeProps.toLocaleString('pt-BR')}`;
+  if (statLodSavings && totalProps > 0) {
+    const savingsPct = Math.max(0, Math.min(99, Math.round((1 - activeProps / totalProps) * 100)));
+    statLodSavings.textContent = `-${savingsPct}%`;
+  }
+}
+
+// Atualização de Visibilidade por Categoria em todos os Chunks
+function updateCategoryVisibility(catKey) {
+  if (!state.lodChunks) return;
+  const isVis = state.props.categories[catKey] && state.props.enabled;
+  for (const chunk of state.lodChunks) {
+    for (const key of Object.keys(chunk.layers)) {
+      const layer = chunk.layers[key];
+      if (layer.category === catKey) {
+        if (layer.solidMesh) layer.solidMesh.visible = isVis;
+        if (layer.impostorMesh) layer.impostorMesh.visible = isVis;
+      }
+    }
+  }
+  updateLODVisibility(true);
 }
 
 // 11. Layer & Opacity Control
@@ -3583,6 +3316,7 @@ function animateCamera(targetX, targetY, targetZ, lookX, lookY, lookZ, duration 
     camera.position.lerpVectors(startPos, endPos, ease);
     controls.target.lerpVectors(startTarget, endTarget, ease);
     controls.update();
+  updateLODVisibility();
 
     if (progress < 1) {
       activeCameraAnimId = requestAnimationFrame(step);
@@ -3729,14 +3463,74 @@ function setupEventListeners() {
 
   window.setPropsDensity = setPropsDensity;
 
-  document.querySelectorAll('.btn-density').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const d = parseFloat(btn.dataset.density);
-      if (!isNaN(d)) {
-        setPropsDensity(d);
+  // 🌿 Slider Contínuo de Densidade de Props (0.5x a 5.0x) com Debounce
+  let densityDebounceTimer = null;
+
+  function formatDensityLabel(val) {
+    if (val < 0.9) return `${val.toFixed(1)}x (Econômico)`;
+    if (val <= 1.2) return `${val.toFixed(1)}x (Padrão 1:1)`;
+    if (val <= 2.2) return `${val.toFixed(1)}x (Alta Densidade)`;
+    if (val <= 3.8) return `${val.toFixed(1)}x (Ultra Densa)`;
+    return `${val.toFixed(1)}x (Hiper-Densidade 🔥)`;
+  }
+
+  function updateDensityUI(val) {
+    const txt = formatDensityLabel(val);
+    if (valPropDensity) valPropDensity.textContent = txt;
+    if (valPropDensitySettings) valPropDensitySettings.textContent = txt;
+    if (badgeDensityMultiplier) badgeDensityMultiplier.textContent = `${val.toFixed(1)}x`;
+    if (densityHelperText) {
+      if (val > 3.8) {
+        densityHelperText.textContent = 'Mais de 2M de instâncias ativas!';
+        densityHelperText.style.color = '#c084fc';
+      } else if (val > 2.0) {
+        densityHelperText.textContent = 'Cerrado e áreas densificadas';
+        densityHelperText.style.color = 'var(--accent-green)';
+      } else {
+        densityHelperText.textContent = 'Equilibrada para 60 FPS';
+        densityHelperText.style.color = 'var(--text-muted)';
       }
-    });
-  });
+    }
+  }
+
+  function onDensityInput(e) {
+    const val = parseFloat(e.target.value);
+    if (sliderPropDensity && sliderPropDensity !== e.target) sliderPropDensity.value = val;
+    if (sliderPropDensitySettings && sliderPropDensitySettings !== e.target) sliderPropDensitySettings.value = val;
+    updateDensityUI(val);
+
+    clearTimeout(densityDebounceTimer);
+    densityDebounceTimer = setTimeout(() => {
+      state.props.density = val;
+      if (state.props.enabled) {
+        buildPropsMeshes();
+      }
+    }, 220);
+  }
+
+  if (sliderPropDensity) {
+    sliderPropDensity.addEventListener('input', onDensityInput);
+  }
+  if (sliderPropDensitySettings) {
+    sliderPropDensitySettings.addEventListener('input', onDensityInput);
+  }
+
+  // ⚙️ Gerenciador do Menu Flutuante de Ajustes & Otimizações
+  function toggleSettingsPanel() {
+    if (!settingsPanel) return;
+    const isAct = settingsPanel.classList.toggle('active');
+    if (btnOpenSettings) btnOpenSettings.classList.toggle('active', isAct);
+  }
+
+  function closeSettingsPanel() {
+    if (!settingsPanel) return;
+    settingsPanel.classList.remove('active');
+    if (btnOpenSettings) btnOpenSettings.classList.remove('active');
+  }
+
+  if (btnOpenSettings) btnOpenSettings.addEventListener('click', toggleSettingsPanel);
+  if (btnOpenSettingsSide) btnOpenSettingsSide.addEventListener('click', toggleSettingsPanel);
+  if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeSettingsPanel);
 
   // Toggle de Limites Territoriais do DF (IBGE)
   const chkDFBoundary = document.getElementById('check-df-boundary');
@@ -3785,11 +3579,7 @@ function setupEventListeners() {
         chip.classList.remove('disabled');
         state.props.categories[propKey] = true;
       }
-      for (const [key, layer] of Object.entries(propLayers)) {
-        if (layer.category === propKey || key === propKey) {
-          layer.mesh.visible = state.props.categories[propKey] && state.props.enabled;
-        }
-      }
+      updateCategoryVisibility(propKey);
     });
   });
 
@@ -4034,4 +3824,64 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+}
+
+// 13. Pipeline de Dados Multi-Resolução (LOD de Processamento e Transmissão)
+async function setDataPipelineLOD(dlod) {
+  state.dataLod = dlod;
+  updateProgress(20, 'Carregando dados altimétricos LOD...');
+  if (loadingOverlay) {
+    loadingOverlay.style.display = 'flex';
+    loadingOverlay.classList.remove('fade-out');
+  }
+
+  try {
+    if (dlod === 'lod1') {
+      updateProgress(40, 'Carregando classes LOD 1 (2.1 MB - 4x mais leve)...');
+      const cResp = await fetch('public/classes_lod1.bin');
+      rawClasses = new Uint8Array(await cResp.arrayBuffer());
+
+      updateProgress(65, 'Carregando elevação LOD 1 (8.5 MB - 4x mais leve)...');
+      const eResp = await fetch('public/elevation_lod1.bin');
+      rawElevations = new Float32Array(await eResp.arrayBuffer());
+
+      state.demDimensions = { width: 1869, height: 1147 };
+    } else {
+      updateProgress(40, 'Carregando classes 30m (8.5 MB)...');
+      const cResp = await fetch('public/classes.bin');
+      rawClasses = new Uint8Array(await cResp.arrayBuffer());
+
+      updateProgress(65, 'Carregando elevação 30m (34.3 MB)...');
+      const eResp = await fetch('public/elevation.bin');
+      rawElevations = new Float32Array(await eResp.arrayBuffer());
+
+      state.demDimensions = { width: 3738, height: 2294 };
+    }
+
+    updateProgress(80, 'Atualizando malha do terreno e pedestal...');
+    buildTerrainMesh();
+
+    updateProgress(88, 'Ajustando marcos, vias e limites oficiais...');
+    updateRoadsElevation();
+    updateOSMLandmarksElevation();
+    updateDFBoundaryElevation();
+    updateSkirtElevation();
+
+    updateProgress(94, 'Redistribuindo objetos e particionando chunks LOD...');
+    buildPropsMeshes();
+
+    updateProgress(100, 'Pronto!');
+    setTimeout(() => {
+      if (loadingOverlay) {
+        loadingOverlay.classList.add('fade-out');
+        setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
+      }
+    }, 400);
+  } catch (err) {
+    console.error('Erro ao alternar pipeline LOD:', err);
+    if (loadingOverlay) {
+      loadingOverlay.classList.add('fade-out');
+      setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
+    }
+  }
 }

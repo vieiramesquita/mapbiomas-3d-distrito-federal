@@ -16,3 +16,7 @@ artifacts/
 scratch/
 .tempmediaStorage/
 node_modules/
+
+HISTORICO_CONVERSA_MAPBIOMAS3D.md
+*.pdf
+
