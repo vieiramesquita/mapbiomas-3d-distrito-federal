@@ -4164,6 +4164,20 @@ const INFO_TOPICS = {
     impact: 'Ajusta dinamicamente a altura de rodovias, marcos 3D e vegetação para permanecerem perfeitamente drapeados ao relevo.',
     recommendation: 'Clique no botão <em>Resetar para Escala 1:1</em> a qualquer momento.'
   }
+,
+  'prop-scale': {
+    icon: '📏',
+    title: 'Escala dos Props (Tamanho Botânico e Arquitetônico)',
+    subtitle: 'Dimensão Métrica Relativa de Árvores e Objetos 3D',
+    description: 'Ajusta a altura e proporção métrica de todas as árvores do Cerrado, lavouras agrícolas e monumentos em relação ao relevo do Distrito Federal.',
+    details: [
+      '<strong>1.0x (1:1 Real):</strong> Altura botânica estritamente calibrada com a realidade (árvores de cerrado de 4m a 8m, matas de 16m).',
+      '<strong>2.0x a 3.0x:</strong> Amplia a vegetação e monumentos para visualização destacada em sobrevoos gerais.',
+      '<strong>0.5x:</strong> Reduz o porte da vegetação para dar foco total à topografia e relevo do planalto.'
+    ],
+    impact: 'Atualiza instantaneamente as matrizes de transformação de todas as instâncias GPU sem recarregar dados.',
+    recommendation: 'Mantenha em <strong>1.0x</strong> para representação botânica e arquitetônica cientificamente realista.'
+  },
 };
 
 function openInfoModal(topicKey) {
@@ -4304,17 +4318,31 @@ function setupEventListeners() {
     });
   }
 
+  const sliderPropScaleSettings = document.getElementById('slider-prop-scale-settings');
+  const valPropScaleSettings = document.getElementById('val-prop-scale-settings');
+
+  function updatePropScaleUI(val) {
+    const txt = val.toFixed(1) + (Math.abs(val - 1.0) < 0.05 ? 'x (1:1 Botânico)' : 'x');
+    if (valPropScale) valPropScale.textContent = txt;
+    if (valPropScaleSettings) valPropScaleSettings.textContent = txt;
+    if (sliderPropScale && parseFloat(sliderPropScale.value) !== val) sliderPropScale.value = val;
+    if (sliderPropScaleSettings && parseFloat(sliderPropScaleSettings.value) !== val) sliderPropScaleSettings.value = val;
+  }
+
+  function onPropScaleInput(e) {
+    const val = parseFloat(e.target.value);
+    state.props.scale = val;
+    updatePropScaleUI(val);
+    updatePropsTransforms();
+    if (typeof updateRoadsElevation === 'function') updateRoadsElevation();
+    if (typeof updateOSMLandmarksElevation === 'function') updateOSMLandmarksElevation();
+  }
+
   if (sliderPropScale) {
-    sliderPropScale.addEventListener('input', (e) => {
-      state.props.scale = parseFloat(e.target.value);
-      if (valPropScale) {
-        valPropScale.textContent = state.props.scale.toFixed(1) + (state.props.scale === 1.0 ? 'x (1:1 Botânico)' : 'x');
-      }
-      updatePropsTransforms();
-  updateRoadsElevation();
-  updateOSMLandmarksElevation();
-  updateOSMLandmarksElevation();
-    });
+    sliderPropScale.addEventListener('input', onPropScaleInput);
+  }
+  if (sliderPropScaleSettings) {
+    sliderPropScaleSettings.addEventListener('input', onPropScaleInput);
   }
 
   // 8.2 Controle Segmentado de Densidade de Vegetação e Props
@@ -4433,14 +4461,17 @@ function setupEventListeners() {
   setupDensityTicks('ticks-prop-density', 'slider-prop-density');
   setupDensityTicks('ticks-prop-density-settings', 'slider-prop-density-settings');
 
-  // Conectar botões de ajuda / informação com popup explicativo
-  document.querySelectorAll('.info-help-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      openInfoModal(btn.dataset.info);
-    });
-  });
+  // Conectar botões de ajuda / informação com popup explicativo via delegação global em fase de captura
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.info-help-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const topic = btn.dataset.info || btn.getAttribute('data-info');
+    if (topic) {
+      openInfoModal(topic);
+    }
+  }, true);
 
   const btnCloseInfoModal = document.getElementById('btn-close-info-modal');
   const btnDismissInfoModal = document.getElementById('btn-dismiss-info-modal');

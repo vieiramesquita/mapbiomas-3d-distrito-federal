@@ -2023,3 +2023,28 @@ input[type="range"]::-webkit-slider-thumb:hover {
   opacity: 1;
   pointer-events: auto;
 }
+
+
+.slider-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lod-switch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 1;
+}
+
+.lod-switches-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
