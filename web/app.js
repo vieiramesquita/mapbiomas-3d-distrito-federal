@@ -5,6 +5,13 @@ const TERRAIN_SEG_H = 382;
  * Interactive Three.js WebGL Terrain Viewer with Satellite, MapBiomas & Procedural 3D Props
  */
 
+// Hardware & Device Detection: Auto Mobile Profile
+const isMobileDevice = (typeof window !== 'undefined') && (
+  ('ontouchstart' in window) ||
+  (navigator.maxTouchPoints > 0) ||
+  (window.innerWidth <= 768)
+);
+
 // Application State
 const state = {
   metadata: null,
@@ -26,22 +33,22 @@ const state = {
   totalPropsCount: 0,
   activePropsCount: 0,
   visibleChunksCount: 0,
-  terrainLod: 'ultra', // 'ultra' (622x382), 'balanced' (311x191), 'fast' (155x95)
+  terrainLod: isMobileDevice ? 'balanced' : 'ultra', // 'ultra' (622x382), 'balanced' (311x191), 'fast' (155x95)
   dataLod: 'full', // 'full' (DEM 30m) ou 'lod1' (meia-resolução)
   lodChunks: [],
   lod: {
     enabled: true,
     frustumCulling: true,
-    nearDistance: 35.0, // < 35 units = LOD 0 (3D Sólido completo + micro-props)
-    farDistance: 70.0   // 35-70 units = LOD 1 (Impostores 2.5D), > 70 units = LOD 2
+    nearDistance: isMobileDevice ? 24.0 : 35.0, // < 35 units = LOD 0 (3D Sólido completo + micro-props)
+    farDistance: isMobileDevice ? 60.0 : 70.0   // 35-70 units = LOD 1 (Impostores 2.5D), > 70 units = LOD 2
   },
   roads: { enabled: true, tier1: true, tier2: true, tier3: true },
   landmarks: { enabled: true, scale: 1.0 },
   props: {
     enabled: true,
-    castShadows: true,
+    castShadows: !isMobileDevice,
     scale: 1.0,
-    density: 1.0, // Multiplicador de densidade de vegetação e props por pixel (1.0x, 1.5x, 2.0x, 2.5x)
+    density: isMobileDevice ? 0.7 : 1.0, // Multiplicador de densidade de vegetação e props por pixel (1.0x, 1.5x, 2.0x, 2.5x)
     categories: {
       forest: true,
       cerrado: true,
@@ -430,10 +437,10 @@ function initThreeScene() {
   camera = new THREE.PerspectiveCamera(40, w / h, 0.5, 2000000);
   camera.position.set(-35, 65, 95);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ antialias: !isMobileDevice, powerPreference: 'high-performance' });
   renderer.setSize(w, h);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio || 1, 1.5) : Math.min(window.devicePixelRatio || 1, 2.0));
+  renderer.shadowMap.enabled = !isMobileDevice;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -441,7 +448,11 @@ function initThreeScene() {
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+  controls.dampingFactor = 0.08;
+  controls.touches = {
+    ONE: THREE.TOUCH.ROTATE,
+    TWO: THREE.TOUCH.DOLLY_PAN
+  };
   controls.maxPolarAngle = Math.PI / 2.05;
   controls.minDistance = 2;
   controls.maxDistance = 450;
@@ -452,7 +463,7 @@ function initThreeScene() {
   scene.add(ambientLight);
 
   sunLight = new THREE.DirectionalLight(0xfff3db, 2.3);
-  sunLight.castShadow = true;
+  sunLight.castShadow = !isMobileDevice;
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
   sunLight.shadow.camera.near = 10;
@@ -4558,6 +4569,9 @@ function setupEventListeners() {
     if (!settingsPanel) return;
     const isAct = settingsPanel.classList.toggle('active');
     if (btnOpenSettings) btnOpenSettings.classList.toggle('active', isAct);
+    if (isAct && isMobileDevice) {
+      hideControlPanel();
+    }
   }
 
   function closeSettingsPanel() {
@@ -4712,6 +4726,9 @@ function setupEventListeners() {
   function showControlPanel() {
     if (controlPanel) controlPanel.classList.remove('minimized');
     if (btnShowPanel) btnShowPanel.classList.remove('active');
+    if (isMobileDevice && settingsPanel) {
+      closeSettingsPanel();
+    }
     updateMasterToggleButton();
   }
 
@@ -4797,6 +4814,30 @@ function setupEventListeners() {
   if (btnCopyStats) {
     btnCopyStats.addEventListener('click', () => copyStatisticsSummary(btnCopyStats));
   }
+
+  // 📱 Perfil Mobile Automático Inicial
+  if (isMobileDevice) {
+    hideControlPanel();
+    if (sliderPropDensity) sliderPropDensity.value = '0.7';
+    if (sliderPropDensitySettings) sliderPropDensitySettings.value = '0.7';
+    updateDensityUI(0.7);
+
+    const btnGroupTerrainLod = document.getElementById('btn-group-terrain-lod');
+    if (btnGroupTerrainLod) {
+      btnGroupTerrainLod.querySelectorAll('.btn-segmented-item').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tlod === 'balanced');
+      });
+    }
+    if (badgeTerrainLod) {
+      badgeTerrainLod.textContent = 'Equilibrado (311x191)';
+      badgeTerrainLod.style.color = 'var(--accent-green)';
+    }
+
+    setTimeout(() => {
+      showToastNotification('📱 Perfil Mobile Ativo: GPU e bateria otimizadas (60 FPS)', '⚡');
+    }, 1200);
+  }
+
 }
 
 // Exportação CSV das estatísticas territoriais
